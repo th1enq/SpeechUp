@@ -1,16 +1,20 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import '../l10n/app_language.dart';
 import '../theme/app_colors.dart';
 
 class HomeScreen extends StatelessWidget {
   final Function(int) onNavigate;
+  final String userName;
 
-  const HomeScreen({super.key, required this.onNavigate});
+  const HomeScreen({super.key, required this.onNavigate, this.userName = 'User'});
 
   static TextStyle get _display => GoogleFonts.plusJakartaSans();
 
   @override
   Widget build(BuildContext context) {
+    final t = appLanguage.t;
+
     return SafeArea(
       child: SingleChildScrollView(
         physics: const BouncingScrollPhysics(),
@@ -68,7 +72,7 @@ class HomeScreen extends StatelessWidget {
             ),
             const SizedBox(height: 22),
             Text(
-              'Hello, User',
+              t('home.greeting', params: {'name': userName}),
               style: _display.copyWith(
                 fontSize: 30,
                 fontWeight: FontWeight.w800,
@@ -78,7 +82,7 @@ class HomeScreen extends StatelessWidget {
             ),
             const SizedBox(height: 6),
             Text(
-              'Let\'s practice speaking today',
+              t('home.subtitle'),
               style: _display.copyWith(
                 fontSize: 15,
                 fontWeight: FontWeight.w500,
@@ -109,7 +113,7 @@ class HomeScreen extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
                         Text(
-                          'Start Speaking Practice',
+                          t('home.startPractice'),
                           textAlign: TextAlign.center,
                           style: _display.copyWith(
                             fontSize: 18,
@@ -119,7 +123,7 @@ class HomeScreen extends StatelessWidget {
                         ),
                         const SizedBox(height: 8),
                         Text(
-                          'Tap to start recording your speech.',
+                          t('home.startPracticeHint'),
                           textAlign: TextAlign.center,
                           style: _display.copyWith(
                             fontSize: 14,
@@ -156,7 +160,7 @@ class HomeScreen extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'Daily Speech Score',
+                    t('home.dailyScore'),
                     style: _display.copyWith(
                       fontSize: 14,
                       fontWeight: FontWeight.w600,
@@ -171,7 +175,7 @@ class HomeScreen extends StatelessWidget {
             const SizedBox(height: 18),
             _DashboardMetricRow(
               icon: Icons.waves_rounded,
-              label: 'Fluency',
+              label: t('home.fluency'),
               value: '85%',
               iconBg: AppColors.dashboardFluencyIconBg,
               accent: AppColors.dashboardFluencyAccent,
@@ -179,7 +183,7 @@ class HomeScreen extends StatelessWidget {
             const SizedBox(height: 10),
             _DashboardMetricRow(
               icon: Icons.record_voice_over_rounded,
-              label: 'Pronunciation',
+              label: t('home.pronunciation'),
               value: '90%',
               iconBg: AppColors.dashboardPronunciationIconBg,
               accent: AppColors.dashboardPronunciationAccent,
@@ -187,7 +191,7 @@ class HomeScreen extends StatelessWidget {
             const SizedBox(height: 10),
             _DashboardMetricRow(
               icon: Icons.speed_rounded,
-              label: 'Speech Speed',
+              label: t('home.speechSpeed'),
               value: '75%',
               iconBg: AppColors.dashboardSpeedIconBg,
               accent: AppColors.dashboardSpeedAccent,
@@ -197,7 +201,7 @@ class HomeScreen extends StatelessWidget {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text(
-                  'Recent Practice',
+                  t('home.recentPractice'),
                   style: _display.copyWith(
                     fontSize: 17,
                     fontWeight: FontWeight.w800,
@@ -213,7 +217,7 @@ class HomeScreen extends StatelessWidget {
                     tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                   ),
                   child: Text(
-                    'View All',
+                    t('common.viewAll'),
                     style: _display.copyWith(
                       fontSize: 14,
                       fontWeight: FontWeight.w700,
@@ -225,20 +229,20 @@ class HomeScreen extends StatelessWidget {
             ),
             const SizedBox(height: 12),
             _RecentPracticeItem(
-              date: 'Today',
-              detail: '5 sessions',
+              date: t('common.today'),
+              detail: t('home.sessions', params: {'count': '5'}),
               score: 82,
             ),
             const SizedBox(height: 10),
             _RecentPracticeItem(
-              date: 'Yesterday',
-              detail: '3 sessions',
+              date: t('common.yesterday'),
+              detail: t('home.sessions', params: {'count': '3'}),
               score: 75,
             ),
             const SizedBox(height: 10),
             _RecentPracticeItem(
-              date: 'Monday',
-              detail: '4 sessions',
+              date: t('common.monday'),
+              detail: t('home.sessions', params: {'count': '4'}),
               score: 80,
             ),
           ],
@@ -534,7 +538,7 @@ class _RecentPracticeItem extends StatelessWidget {
               ),
               const SizedBox(height: 2),
               Text(
-                'SCORE',
+                appLanguage.t('home.score'),
                 style: style.copyWith(
                   fontSize: 10,
                   fontWeight: FontWeight.w800,

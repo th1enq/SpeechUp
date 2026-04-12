@@ -26,10 +26,16 @@
         android = pkgs.androidenv.composeAndroidPackages {
           buildToolsVersions = [
             "36.0.0"
+            "35.0.0"
             "28.0.3"
           ];
-          platformVersions = [ "36" ];
+          platformVersions = [ "36" "34" ];
           abiVersions = [ "arm64-v8a" ];
+
+          includeNDK = true;
+          ndkVersions = [ "28.2.13676358" ];
+
+          cmakeVersions = [ "3.22.1" ];
         };
 
       in

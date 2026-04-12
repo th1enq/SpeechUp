@@ -1,6 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import '../main.dart' show isFirebaseSupported;
+import '../l10n/app_language.dart';
 import '../theme/app_colors.dart';
+import '../services/auth_service.dart';
+import '../services/firestore_service.dart';
+import '../models/user_profile.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -11,10 +18,184 @@ class ProfileScreen extends StatefulWidget {
 
 class _ProfileScreenState extends State<ProfileScreen> {
   bool _notificationsOn = true;
+  String _selectedLanguage = 'English (US)';
+  String _selectedDifficulty = 'Intermediate';
+  final AuthService _authService = AuthService();
+  final FirestoreService _firestoreService = FirestoreService();
+  UserProfile? _profile;
+
+  static const List<String> _difficulties = [
+    'Beginner',
+    'Intermediate',
+    'Advanced',
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadProfile();
+  }
+
+  Future<void> _loadProfile() async {
+    final prefs = await SharedPreferences.getInstance();
+    final savedLanguage = prefs.getString('profile_language');
+    final savedDifficulty = prefs.getString('profile_difficulty');
+    final savedNotifications = prefs.getBool('profile_notifications_enabled');
+
+    if (mounted) {
+      setState(() {
+        _selectedLanguage = savedLanguage ?? appLanguage.currentLanguageDisplayName;
+        _selectedDifficulty = savedDifficulty ?? _selectedDifficulty;
+        _notificationsOn = savedNotifications ?? _notificationsOn;
+      });
+    }
+    appLanguage.setByDisplayName(_selectedLanguage);
+
+    if (!isFirebaseSupported) return;
+    final user = FirebaseAuth.instance.currentUser;
+    if (user != null) {
+      final profile = await _firestoreService.getUserProfile(user.uid);
+      if (mounted) {
+        setState(() {
+          _profile = profile;
+          if (profile != null) {
+            _selectedLanguage = profile.language;
+            _selectedDifficulty = profile.difficulty;
+            _notificationsOn = profile.notificationsEnabled;
+            appLanguage.setByDisplayName(_selectedLanguage);
+          }
+        });
+      }
+    }
+  }
+
+  Future<void> _updateSettings({
+    String? language,
+    String? difficulty,
+    bool? notificationsEnabled,
+  }) async {
+    final prefs = await SharedPreferences.getInstance();
+
+    if (language != null) {
+      await prefs.setString('profile_language', language);
+    }
+    if (difficulty != null) {
+      await prefs.setString('profile_difficulty', difficulty);
+    }
+    if (notificationsEnabled != null) {
+      await prefs.setBool('profile_notifications_enabled', notificationsEnabled);
+    }
+
+    if (isFirebaseSupported) {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user != null) {
+        final updates = <String, dynamic>{};
+        if (language != null) updates['language'] = language;
+        if (difficulty != null) updates['difficulty'] = difficulty;
+        if (notificationsEnabled != null) {
+          updates['notificationsEnabled'] = notificationsEnabled;
+        }
+        if (updates.isNotEmpty) {
+          await _firestoreService.updateUserProfile(user.uid, updates);
+        }
+      }
+    }
+  }
+
+  Future<void> _pickLanguage() async {
+    final t = appLanguage.t;
+    final selected = await _showOptionSheet(
+      title: t('profile.selectLanguage'),
+      options: appLanguage.supportedLanguageDisplayNames,
+      currentValue: _selectedLanguage,
+    );
+    if (selected == null || selected == _selectedLanguage) return;
+
+    setState(() => _selectedLanguage = selected);
+    appLanguage.setByDisplayName(selected);
+    await _updateSettings(language: selected);
+  }
+
+  Future<void> _pickDifficulty() async {
+    final t = appLanguage.t;
+    final selected = await _showOptionSheet(
+      title: t('profile.selectDifficulty'),
+      options: _difficulties,
+      currentValue: _selectedDifficulty,
+    );
+    if (selected == null || selected == _selectedDifficulty) return;
+
+    setState(() => _selectedDifficulty = selected);
+    await _updateSettings(difficulty: selected);
+  }
+
+  Future<void> _toggleNotifications() async {
+    final nextValue = !_notificationsOn;
+    setState(() => _notificationsOn = nextValue);
+    await _updateSettings(notificationsEnabled: nextValue);
+  }
+
+  Future<String?> _showOptionSheet({
+    required String title,
+    required List<String> options,
+    required String currentValue,
+  }) {
+    final base = GoogleFonts.plusJakartaSans();
+    return showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(8, 0, 8, 12),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      title,
+                      style: base.copyWith(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w800,
+                        color: AppColors.profileNavy,
+                      ),
+                    ),
+                  ),
+                ),
+                ...options.map(
+                  (option) => ListTile(
+                    onTap: () => Navigator.pop(context, option),
+                    title: Text(
+                      option,
+                      style: base.copyWith(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.profileNavy,
+                      ),
+                    ),
+                    trailing: option == currentValue
+                        ? Icon(
+                            Icons.check_rounded,
+                            color: AppColors.onboardingBlue,
+                          )
+                        : null,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
     final base = GoogleFonts.plusJakartaSans();
+    final t = appLanguage.t;
 
     return Scaffold(
       backgroundColor: AppColors.profileBackground,
@@ -48,11 +229,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     ),
                   ),
                   IconButton(
-                    onPressed: () {},
+                    onPressed: _toggleNotifications,
                     padding: EdgeInsets.zero,
                     constraints: const BoxConstraints(minWidth: 40, minHeight: 40),
                     icon: Icon(
-                      Icons.notifications_outlined,
+                      _notificationsOn
+                          ? Icons.notifications_active_rounded
+                          : Icons.notifications_off_rounded,
                       color: AppColors.onboardingBlue,
                       size: 26,
                     ),
@@ -87,7 +270,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     ),
                     const SizedBox(height: 18),
                     Text(
-                      'Jane Doe',
+                      _profile?.displayName ?? (isFirebaseSupported ? FirebaseAuth.instance.currentUser?.displayName : null) ?? 'User',
                       style: base.copyWith(
                         fontSize: 26,
                         fontWeight: FontWeight.w800,
@@ -111,7 +294,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           ),
                           const SizedBox(width: 6),
                           Text(
-                            '7-day practice streak',
+                            appLanguage.dayPracticeStreak(_profile?.streakDays ?? 0),
                             style: base.copyWith(
                               fontSize: 13,
                               fontWeight: FontWeight.w700,
@@ -133,9 +316,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       icon: Icons.calendar_today_outlined,
                       iconColor: AppColors.onboardingBlue,
                       iconCircleBg: const Color(0xFFE8F1FF),
-                      value: '45',
+                      value: '${_profile?.totalSessions ?? 0}',
                       valueExtra: null,
-                      label: 'Total Sessions',
+                      label: t('profile.totalSessions'),
                     ),
                   ),
                   const SizedBox(width: 12),
@@ -145,9 +328,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       icon: Icons.timer_outlined,
                       iconColor: AppColors.progressMilestonePurple,
                       iconCircleBg: const Color(0xFFF3E8FF),
-                      value: '2.5',
+                      value: (_profile?.totalSpeakingMinutes ?? 0).toStringAsFixed(1),
                       valueExtra: 'h',
-                      label: 'Speaking Time',
+                      label: t('profile.speakingTime'),
                     ),
                   ),
                 ],
@@ -186,7 +369,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          '84',
+                          '${_profile?.averageScore ?? 0}',
                           style: base.copyWith(
                             fontSize: 34,
                             fontWeight: FontWeight.w800,
@@ -196,7 +379,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         ),
                         const SizedBox(height: 6),
                         Text(
-                          'Average Score',
+                          t('profile.averageScore'),
                           style: base.copyWith(
                             fontSize: 14,
                             fontWeight: FontWeight.w600,
@@ -210,7 +393,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
               ),
               const SizedBox(height: 28),
               Text(
-                'Account Settings',
+                t('profile.accountSettings'),
                 style: base.copyWith(
                   fontSize: 17,
                   fontWeight: FontWeight.w800,
@@ -223,9 +406,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 icon: Icons.language_rounded,
                 iconColor: AppColors.onboardingBlue,
                 iconBg: const Color(0xFFE8F1FF),
-                title: 'Language',
-                subtitle: 'English (US)',
-                onTap: () {},
+                title: t('profile.language'),
+                subtitle: _selectedLanguage,
+                onTap: _pickLanguage,
               ),
               const SizedBox(height: 10),
               _SettingsRow(
@@ -233,9 +416,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 icon: Icons.psychology_outlined,
                 iconColor: AppColors.progressMilestonePurple,
                 iconBg: const Color(0xFFF3E8FF),
-                title: 'Speech Difficulty',
-                subtitle: 'Intermediate',
-                onTap: () {},
+                title: t('profile.speechDifficulty'),
+                subtitle: _selectedDifficulty,
+                onTap: _pickDifficulty,
               ),
               const SizedBox(height: 10),
               _SettingsRow(
@@ -243,14 +426,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 icon: Icons.notifications_outlined,
                 iconColor: AppColors.progressMilestonePurple,
                 iconBg: const Color(0xFFF3E8FF),
-                title: 'Notifications',
-                subtitle: 'On • 8:00 PM Daily',
-                onTap: () {},
+                title: t('profile.notifications'),
+                subtitle: _notificationsOn
+                    ? t('profile.notificationsOn')
+                    : t('profile.notificationsOff'),
+                onTap: _toggleNotifications,
                 trailing: Switch.adaptive(
                   value: _notificationsOn,
                   activeTrackColor: AppColors.onboardingBlue.withValues(alpha: 0.55),
                   activeThumbColor: Colors.white,
-                  onChanged: (v) => setState(() => _notificationsOn = v),
+                  onChanged: (_) => _toggleNotifications(),
                 ),
               ),
               const SizedBox(height: 28),
@@ -258,7 +443,19 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 width: double.infinity,
                 height: 52,
                 child: OutlinedButton(
-                  onPressed: () {},
+                  onPressed: () async {
+                    if (!isFirebaseSupported) {
+                      if (mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text(t('profile.firebaseOnlyLogout')),
+                          ),
+                        );
+                      }
+                      return;
+                    }
+                    await _authService.signOut();
+                  },
                   style: OutlinedButton.styleFrom(
                     backgroundColor: Colors.white,
                     foregroundColor: AppColors.profileLogoutMaroon,
@@ -270,7 +467,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     ),
                   ),
                   child: Text(
-                    'Log Out',
+                    t('profile.logout'),
                     style: base.copyWith(
                       fontSize: 16,
                       fontWeight: FontWeight.w800,
@@ -528,13 +725,11 @@ class _SettingsRow extends StatelessWidget {
       ),
       child: Material(
         color: Colors.transparent,
-        child: trailing == null
-            ? InkWell(
-                onTap: onTap,
-                borderRadius: BorderRadius.circular(20),
-                child: body,
-              )
-            : body,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(20),
+          child: body,
+        ),
       ),
     );
   }

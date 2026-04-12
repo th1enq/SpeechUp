@@ -1,8 +1,11 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import '../main.dart' show isFirebaseSupported;
 import '../theme/app_colors.dart';
 import '../widgets/shared_widgets.dart';
+import '../services/firestore_service.dart';
 
 class ConversationScreen extends StatefulWidget {
   const ConversationScreen({super.key});
@@ -56,6 +59,18 @@ class _ConversationScreenState extends State<ConversationScreen> {
             _inConversation = false;
             _selectedScenario = null;
           });
+        },
+        onSaveConversation: (scenarioId, messages) async {
+          if (!isFirebaseSupported) return;
+          final user = FirebaseAuth.instance.currentUser;
+          if (user != null) {
+            final firestoreService = FirestoreService();
+            await firestoreService.saveConversation(
+              userId: user.uid,
+              scenarioId: scenarioId,
+              messages: messages,
+            );
+          }
         },
       );
     }
@@ -348,8 +363,9 @@ class _ScenarioCard extends StatelessWidget {
 class _ConversationChat extends StatefulWidget {
   final _Scenario scenario;
   final VoidCallback onExit;
+  final Future<void> Function(String scenarioId, List<Map<String, dynamic>> messages)? onSaveConversation;
 
-  const _ConversationChat({required this.scenario, required this.onExit});
+  const _ConversationChat({required this.scenario, required this.onExit, this.onSaveConversation});
 
   @override
   State<_ConversationChat> createState() => _ConversationChatState();
@@ -472,6 +488,14 @@ class _ConversationChatState extends State<_ConversationChat> {
 
   @override
   void dispose() {
+    // Save conversation before disposing
+    if (_messages.isNotEmpty && widget.onSaveConversation != null) {
+      final messageMaps = _messages.map((m) => {
+        'text': m.text,
+        'isUser': m.isUser,
+      }).toList();
+      widget.onSaveConversation!(widget.scenario.id, messageMaps);
+    }
     _scrollController.dispose();
     super.dispose();
   }

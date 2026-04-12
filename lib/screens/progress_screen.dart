@@ -1,6 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import '../main.dart' show isFirebaseSupported;
+import '../l10n/app_language.dart';
 import '../theme/app_colors.dart';
+import '../services/firestore_service.dart';
+import '../models/user_profile.dart';
 
 class ProgressScreen extends StatefulWidget {
   const ProgressScreen({super.key});
@@ -11,10 +16,28 @@ class ProgressScreen extends StatefulWidget {
 
 class _ProgressScreenState extends State<ProgressScreen> {
   bool _showWeekly = true;
+  final FirestoreService _firestoreService = FirestoreService();
+  UserProfile? _profile;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadData();
+  }
+
+  Future<void> _loadData() async {
+    if (!isFirebaseSupported) return;
+    final user = FirebaseAuth.instance.currentUser;
+    if (user != null) {
+      final profile = await _firestoreService.getUserProfile(user.uid);
+      if (mounted) setState(() => _profile = profile);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     final base = GoogleFonts.plusJakartaSans();
+    final t = appLanguage.t;
     return SafeArea(
       child: SingleChildScrollView(
         physics: const BouncingScrollPhysics(),
@@ -72,7 +95,7 @@ class _ProgressScreenState extends State<ProgressScreen> {
             ),
             const SizedBox(height: 22),
             Text(
-              'My Journey',
+              t('progress.title'),
               style: base.copyWith(
                 fontSize: 30,
                 fontWeight: FontWeight.w800,
@@ -81,25 +104,18 @@ class _ProgressScreenState extends State<ProgressScreen> {
               ),
             ),
             const SizedBox(height: 10),
-            Text.rich(
-              TextSpan(
-                style: base.copyWith(
-                  fontSize: 15,
-                  fontWeight: FontWeight.w500,
-                  color: AppColors.dashboardTextMuted,
-                  height: 1.45,
-                ),
-                children: const [
-                  TextSpan(text: 'You’ve spoken for '),
-                  TextSpan(
-                    text: '128 minutes',
-                    style: TextStyle(
-                      fontWeight: FontWeight.w800,
-                      color: AppColors.onboardingBlue,
-                    ),
-                  ),
-                  TextSpan(text: ' this month. Keep it up!'),
-                ],
+            Text(
+              t(
+                'progress.monthlyMinutes',
+                params: {
+                  'minutes': '${_profile?.totalSpeakingMinutes.round() ?? 0}',
+                },
+              ),
+              style: base.copyWith(
+                fontSize: 15,
+                fontWeight: FontWeight.w500,
+                color: AppColors.dashboardTextMuted,
+                height: 1.45,
               ),
             ),
             const SizedBox(height: 20),
@@ -113,14 +129,14 @@ class _ProgressScreenState extends State<ProgressScreen> {
                 children: [
                   Expanded(
                     child: _PeriodToggleChip(
-                      label: 'Weekly',
+                      label: t('progress.weekly'),
                       selected: _showWeekly,
                       onTap: () => setState(() => _showWeekly = true),
                     ),
                   ),
                   Expanded(
                     child: _PeriodToggleChip(
-                      label: 'Monthly',
+                      label: t('progress.monthly'),
                       selected: !_showWeekly,
                       onTap: () => setState(() => _showWeekly = false),
                     ),
@@ -139,7 +155,7 @@ class _ProgressScreenState extends State<ProgressScreen> {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text(
-                  'Milestones',
+                  t('progress.milestones'),
                   style: base.copyWith(
                     fontSize: 17,
                     fontWeight: FontWeight.w800,
@@ -155,7 +171,7 @@ class _ProgressScreenState extends State<ProgressScreen> {
                     tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                   ),
                   child: Text(
-                    'View All',
+                    t('common.viewAll'),
                     style: base.copyWith(
                       fontSize: 14,
                       fontWeight: FontWeight.w700,
@@ -173,7 +189,7 @@ class _ProgressScreenState extends State<ProgressScreen> {
                     base: base,
                     icon: Icons.local_fire_department_rounded,
                     iconColor: AppColors.progressMilestonePurple,
-                    label: '7-day practice streak',
+                    label: t('progress.milestoneStreak'),
                   ),
                 ),
                 Expanded(
@@ -181,7 +197,7 @@ class _ProgressScreenState extends State<ProgressScreen> {
                     base: base,
                     icon: Icons.auto_awesome_rounded,
                     iconColor: AppColors.onboardingBlue,
-                    label: 'Improved fluency',
+                    label: t('progress.milestoneFluency'),
                   ),
                 ),
                 Expanded(
@@ -189,7 +205,7 @@ class _ProgressScreenState extends State<ProgressScreen> {
                     base: base,
                     icon: Icons.schedule_rounded,
                     iconColor: AppColors.progressMilestonePurple,
-                    label: '1 hour practice',
+                    label: t('progress.milestoneHour'),
                   ),
                 ),
               ],
@@ -232,7 +248,7 @@ class _ProgressScreenState extends State<ProgressScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'AI Recommendation',
+                          t('progress.aiRecommendation'),
                           style: base.copyWith(
                             fontSize: 16,
                             fontWeight: FontWeight.w800,
@@ -241,7 +257,7 @@ class _ProgressScreenState extends State<ProgressScreen> {
                         ),
                         const SizedBox(height: 8),
                         Text(
-                          'Your pronunciation of \'S\' sounds has improved by 20% this week. Focus on vocal resonance next!',
+                          t('progress.aiRecommendationBody'),
                           style: base.copyWith(
                             fontSize: 13,
                             fontWeight: FontWeight.w500,
@@ -346,7 +362,7 @@ class _FluencyScoreCard extends StatelessWidget {
           Row(
             children: [
               Text(
-                'FLUENCY SCORE',
+                appLanguage.t('progress.fluencyScore'),
                 style: f.copyWith(
                   fontSize: 10,
                   fontWeight: FontWeight.w800,
@@ -463,7 +479,7 @@ class _PronunciationCard extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'PRONUNCIATION',
+                  appLanguage.t('progress.pronunciation'),
                   style: f.copyWith(
                     fontSize: 10,
                     fontWeight: FontWeight.w800,
@@ -473,7 +489,7 @@ class _PronunciationCard extends StatelessWidget {
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  'Steady Growth',
+                  appLanguage.t('progress.steadyGrowth'),
                   style: f.copyWith(
                     fontSize: 19,
                     fontWeight: FontWeight.w800,
@@ -536,7 +552,7 @@ class _SpeechSpeedTrendCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'Speech Speed Trend',
+            appLanguage.t('progress.speechSpeedTrend'),
             style: f.copyWith(
               fontSize: 17,
               fontWeight: FontWeight.w800,
@@ -547,7 +563,7 @@ class _SpeechSpeedTrendCard extends StatelessWidget {
           Row(
             children: [
               Text(
-                'Average Speed',
+                appLanguage.t('progress.averageSpeed'),
                 style: f.copyWith(
                   fontSize: 14,
                   fontWeight: FontWeight.w600,
@@ -569,7 +585,7 @@ class _SpeechSpeedTrendCard extends StatelessWidget {
                   ],
                 ),
                 child: Text(
-                  '142 wpm',
+                  '142 ${appLanguage.t('progress.wpm')}',
                   style: f.copyWith(
                     fontSize: 14,
                     fontWeight: FontWeight.w800,
@@ -607,7 +623,7 @@ class _SpeechSpeedTrendCard extends StatelessWidget {
           ),
           const SizedBox(height: 14),
           Text(
-            'Your target is 130–150 words per minute for clear professional delivery.',
+            appLanguage.t('progress.speedTarget'),
             style: f.copyWith(
               fontSize: 13,
               fontWeight: FontWeight.w500,

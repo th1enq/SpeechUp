@@ -1,6 +1,7 @@
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import '../l10n/app_language.dart';
 import '../theme/app_colors.dart';
 
 class OnboardingScreen extends StatefulWidget {
@@ -50,6 +51,8 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final t = appLanguage.t;
+
     return Scaffold(
       backgroundColor: AppColors.onboardingBackground,
       body: SafeArea(
@@ -71,7 +74,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                         tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                       ),
                       child: Text(
-                        'Skip',
+                        t('onboarding.skip'),
                         style: GoogleFonts.plusJakartaSans(
                           fontSize: 15,
                           fontWeight: FontWeight.w600,
@@ -99,24 +102,23 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                           height: 1.2,
                           color: AppColors.onboardingNavy,
                         ),
-                        children: const [
-                          TextSpan(text: 'Improve Your '),
+                        children: [
+                          TextSpan(text: '${t('onboarding.improveYour')} '),
                           TextSpan(
-                            text: 'Speaking',
-                            style: TextStyle(color: AppColors.onboardingBlue),
+                            text: t('onboarding.speaking'),
+                            style: const TextStyle(color: AppColors.onboardingBlue),
                           ),
                         ],
                       ),
                       textAlign: TextAlign.center,
                     ),
-                    subtitle:
-                        'SpeechUp helps you practice speaking and analyze your voice with AI.',
+                    subtitle: t('onboarding.subtitle1'),
                     bottom: null,
                   ),
                   _OnboardingPage(
                     illustration: const _TrackProgressCardIllustration(),
                     titleWidget: Text(
-                      'Track Your Progress',
+                      t('onboarding.trackProgress'),
                       style: GoogleFonts.plusJakartaSans(
                         fontSize: 28,
                         fontWeight: FontWeight.w800,
@@ -125,7 +127,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                       ),
                       textAlign: TextAlign.center,
                     ),
-                    subtitle: 'See how your speech improves over time.',
+                    subtitle: t('onboarding.subtitle2'),
                     bottom: const _TermsFooter(),
                   ),
                 ],
@@ -156,7 +158,9 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                   ),
                   const SizedBox(height: 22),
                   _GradientCtaButton(
-                    label: _currentPage == 0 ? 'Next' : 'Get Started',
+                    label: _currentPage == 0
+                        ? t('onboarding.next')
+                        : t('onboarding.getStarted'),
                     showArrow: _currentPage == 0,
                     onPressed: _nextPage,
                   ),
@@ -318,10 +322,18 @@ class _TermsFooterState extends State<_TermsFooter> {
       TextSpan(
         style: base,
         children: [
-          const TextSpan(text: 'By continuing, you agree to our '),
-          TextSpan(text: 'Terms of Service', style: link, recognizer: _termsTap),
-          const TextSpan(text: ' and '),
-          TextSpan(text: 'Privacy Policy', style: link, recognizer: _privacyTap),
+          TextSpan(text: '${appLanguage.t('onboarding.termsPrefix')} '),
+          TextSpan(
+            text: appLanguage.t('onboarding.terms'),
+            style: link,
+            recognizer: _termsTap,
+          ),
+          TextSpan(text: ' ${appLanguage.t('onboarding.and')} '),
+          TextSpan(
+            text: appLanguage.t('onboarding.privacy'),
+            style: link,
+            recognizer: _privacyTap,
+          ),
           const TextSpan(text: '.'),
         ],
       ),
@@ -487,7 +499,7 @@ class _SoundWaveIllustration extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'LIVE ANALYSIS',
+                        appLanguage.t('onboarding.liveAnalysis'),
                         style: GoogleFonts.plusJakartaSans(
                           fontSize: 10,
                           fontWeight: FontWeight.w700,
@@ -497,7 +509,7 @@ class _SoundWaveIllustration extends StatelessWidget {
                       ),
                       const SizedBox(height: 2),
                       Text(
-                        '98% Clarity Achieved',
+                        appLanguage.t('onboarding.clarityAchieved'),
                         style: GoogleFonts.plusJakartaSans(
                           fontSize: 15,
                           fontWeight: FontWeight.w700,

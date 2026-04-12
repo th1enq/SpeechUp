@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import '../main.dart' show isFirebaseSupported;
+import '../l10n/app_language.dart';
 import '../theme/app_colors.dart';
 import 'home_screen.dart';
 import 'practice_screen.dart';
@@ -22,12 +25,19 @@ class _MainShellState extends State<MainShell> {
 
   @override
   Widget build(BuildContext context) {
+    final t = appLanguage.t;
+
     return Scaffold(
       backgroundColor: AppColors.dashboardBackground,
       body: IndexedStack(
         index: _currentIndex,
         children: [
-          HomeScreen(onNavigate: _navigateTo),
+          HomeScreen(
+            onNavigate: _navigateTo,
+            userName: isFirebaseSupported
+                ? (FirebaseAuth.instance.currentUser?.displayName ?? 'User')
+                : 'User',
+          ),
           const PracticeScreen(),
           const ConversationScreen(),
           const ProgressScreen(),
@@ -82,31 +92,31 @@ class _MainShellState extends State<MainShell> {
               elevation: 0,
               height: 72,
               labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
-              destinations: const [
+              destinations: [
                 NavigationDestination(
                   icon: Icon(Icons.home_rounded),
                   selectedIcon: Icon(Icons.home_rounded),
-                  label: 'Home',
+                  label: t('nav.home'),
                 ),
                 NavigationDestination(
                   icon: Icon(Icons.fitness_center_rounded),
                   selectedIcon: Icon(Icons.fitness_center_rounded),
-                  label: 'Practice',
+                  label: t('nav.practice'),
                 ),
                 NavigationDestination(
                   icon: Icon(Icons.chat_bubble_rounded),
                   selectedIcon: Icon(Icons.chat_bubble_rounded),
-                  label: 'Chat',
+                  label: t('nav.chat'),
                 ),
                 NavigationDestination(
                   icon: Icon(Icons.show_chart_rounded),
                   selectedIcon: Icon(Icons.show_chart_rounded),
-                  label: 'Progress',
+                  label: t('nav.progress'),
                 ),
                 NavigationDestination(
                   icon: Icon(Icons.person_rounded),
                   selectedIcon: Icon(Icons.person_rounded),
-                  label: 'Profile',
+                  label: t('nav.profile'),
                 ),
               ],
             ),

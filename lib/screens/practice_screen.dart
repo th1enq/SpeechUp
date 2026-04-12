@@ -1,6 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import '../main.dart' show isFirebaseSupported;
+import '../l10n/app_language.dart';
 import '../theme/app_colors.dart';
+import '../services/firestore_service.dart';
+import '../models/practice_session.dart';
 
 class PracticeScreen extends StatefulWidget {
   const PracticeScreen({super.key});
@@ -14,6 +19,8 @@ class _PracticeScreenState extends State<PracticeScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final t = appLanguage.t;
+
     return SafeArea(
       child: SingleChildScrollView(
         physics: const BouncingScrollPhysics(),
@@ -71,7 +78,7 @@ class _PracticeScreenState extends State<PracticeScreen> {
             ),
             const SizedBox(height: 22),
             Text(
-              'Practice',
+              t('practice.title'),
               style: _display.copyWith(
                 fontSize: 30,
                 fontWeight: FontWeight.w800,
@@ -81,7 +88,7 @@ class _PracticeScreenState extends State<PracticeScreen> {
             ),
             const SizedBox(height: 6),
             Text(
-              'Choose an exercise to strengthen your speech foundation.',
+              t('practice.subtitle'),
               style: _display.copyWith(
                 fontSize: 15,
                 fontWeight: FontWeight.w500,
@@ -92,24 +99,23 @@ class _PracticeScreenState extends State<PracticeScreen> {
             const SizedBox(height: 24),
             _PracticeExerciseCard(
               variant: _ExerciseVisual.readSentence,
-              title: 'Read a sentence',
-              body: 'Today is a beautiful day.',
+              title: t('practice.readTitle'),
+              body: t('practice.readBody'),
               bodyItalic: true,
-              tagLabel: 'EASY',
+              tagLabel: t('practice.easy'),
               onTap: () => _openRecording(
                 context,
                 exerciseType: 'read',
-                content: 'Today is a beautiful day.',
+                content: t('practice.readBody'),
               ),
             ),
             const SizedBox(height: 14),
             _PracticeExerciseCard(
               variant: _ExerciseVisual.shadowing,
-              title: 'Shadowing exercise',
-              body:
-                  'Listen to audio and repeat it perfectly to match the rhythm.',
+              title: t('practice.shadowingTitle'),
+              body: t('practice.shadowingBody'),
               bodyItalic: false,
-              tagLabel: 'MEDIUM',
+              tagLabel: t('practice.medium'),
               onTap: () => _openRecording(
                 context,
                 exerciseType: 'shadowing',
@@ -119,11 +125,10 @@ class _PracticeScreenState extends State<PracticeScreen> {
             const SizedBox(height: 14),
             _PracticeExerciseCard(
               variant: _ExerciseVisual.slowSpeech,
-              title: 'Slow speech training',
-              body:
-                  'Practice speaking at a controlled, deliberate pace for clarity.',
+              title: t('practice.slowTitle'),
+              body: t('practice.slowBody'),
               bodyItalic: false,
-              tagLabel: 'HARD',
+              tagLabel: t('practice.hard'),
               onTap: () => _openRecording(
                 context,
                 exerciseType: 'slow',
@@ -149,7 +154,7 @@ class _PracticeScreenState extends State<PracticeScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'Weekly Streak: 5 Days',
+                    t('practice.weeklyStreak'),
                     style: _display.copyWith(
                       fontSize: 18,
                       fontWeight: FontWeight.w800,
@@ -158,7 +163,7 @@ class _PracticeScreenState extends State<PracticeScreen> {
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    'Keep practicing to reach your clarity goal by Friday!',
+                    t('practice.weeklyStreakHint'),
                     style: _display.copyWith(
                       fontSize: 14,
                       fontWeight: FontWeight.w500,
@@ -242,7 +247,7 @@ class _PracticeExerciseCard extends StatelessWidget {
         tagText = AppColors.practiceTagEasyText;
         watermark = Icons.menu_book_rounded;
         watermarkColor = AppColors.onboardingBlue;
-        action = _GradientStartButton(onTap: onTap, label: 'Start');
+        action = _GradientStartButton(onTap: onTap, label: appLanguage.t('common.start'));
         break;
       case _ExerciseVisual.shadowing:
         cardBg = AppColors.practiceCardLavender;
@@ -265,7 +270,7 @@ class _PracticeExerciseCard extends StatelessWidget {
         watermarkColor = AppColors.practicePurple;
         action = _OutlineStartButton(
           onTap: onTap,
-          label: 'Start',
+          label: appLanguage.t('common.start'),
           foreground: AppColors.practicePurpleDeep,
         );
         break;
@@ -290,7 +295,7 @@ class _PracticeExerciseCard extends StatelessWidget {
         watermarkColor = AppColors.practicePurpleDeep;
         action = _OutlineStartButton(
           onTap: onTap,
-          label: 'Start',
+          label: appLanguage.t('common.start'),
           foreground: AppColors.practicePurpleDeep,
         );
         break;
@@ -487,6 +492,40 @@ class _RecordingScreen extends StatelessWidget {
     final display = GoogleFonts.plusJakartaSans();
     void close() => Navigator.of(context).pop();
 
+    Future<void> saveAndClose() async {
+      if (!isFirebaseSupported) {
+        close();
+        return;
+      }
+      final user = FirebaseAuth.instance.currentUser;
+      if (user != null) {
+        final firestoreService = FirestoreService();
+        final session = PracticeSession(
+          userId: user.uid,
+          exerciseType: exerciseType,
+          content: content,
+          score: 82, // Simulated score
+          durationSeconds: 60,
+          fluency: 85,
+          pronunciation: 90,
+          speechSpeed: 75,
+          createdAt: DateTime.now(),
+        );
+        await firestoreService.savePracticeSession(session);
+
+        // Update user stats
+        final profile = await firestoreService.getUserProfile(user.uid);
+        if (profile != null) {
+          await firestoreService.updateUserProfile(user.uid, {
+            'totalSessions': profile.totalSessions + 1,
+            'totalSpeakingMinutes': profile.totalSpeakingMinutes + 1.0,
+          });
+        }
+        await firestoreService.updateStreak(user.uid);
+      }
+      close();
+    }
+
     return Scaffold(
       body: Container(
         width: double.infinity,
@@ -523,7 +562,7 @@ class _RecordingScreen extends StatelessWidget {
                     const SizedBox(width: 6),
                     Expanded(
                       child: Text(
-                        'RECORDING SESSION',
+                        appLanguage.t('practice.recordingSession'),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: display.copyWith(
@@ -556,7 +595,7 @@ class _RecordingScreen extends StatelessWidget {
                 ),
                 const SizedBox(height: 28),
                 Text(
-                  'Listening to you...',
+                  appLanguage.t('practice.listening'),
                   textAlign: TextAlign.center,
                   style: display.copyWith(
                     fontSize: 26,
@@ -606,28 +645,28 @@ class _RecordingScreen extends StatelessWidget {
                 ),
                 const SizedBox(height: 28),
                 Row(
-                  children: const [
+                  children: [
                     Expanded(
                       child: _RecordingMetricCard(
                         icon: Icons.speed_rounded,
-                        label: 'SPEECH SPEED',
-                        value: 'Normal',
+                        label: appLanguage.t('practice.metricSpeed'),
+                        value: appLanguage.t('practice.normal'),
                       ),
                     ),
-                    SizedBox(width: 10),
+                    const SizedBox(width: 10),
                     Expanded(
                       child: _RecordingMetricCard(
                         icon: Icons.pause_rounded,
-                        label: 'PAUSES',
-                        value: 'None',
+                        label: appLanguage.t('practice.metricPauses'),
+                        value: appLanguage.t('practice.none'),
                       ),
                     ),
-                    SizedBox(width: 10),
+                    const SizedBox(width: 10),
                     Expanded(
                       child: _RecordingMetricCard(
                         icon: Icons.graphic_eq_rounded,
-                        label: 'CLARITY',
-                        value: 'High',
+                        label: appLanguage.t('practice.metricClarity'),
+                        value: appLanguage.t('practice.high'),
                       ),
                     ),
                   ],
@@ -638,7 +677,7 @@ class _RecordingScreen extends StatelessWidget {
                   child: Material(
                     color: Colors.transparent,
                     child: InkWell(
-                      onTap: close,
+                      onTap: saveAndClose,
                       borderRadius: BorderRadius.circular(27),
                       child: Ink(
                         decoration: BoxDecoration(
@@ -654,7 +693,7 @@ class _RecordingScreen extends StatelessWidget {
                         ),
                         child: Center(
                           child: Text(
-                            'Stop Recording',
+                            appLanguage.t('practice.stopRecording'),
                             style: display.copyWith(
                               fontSize: 16,
                               fontWeight: FontWeight.w800,
@@ -674,7 +713,7 @@ class _RecordingScreen extends StatelessWidget {
                       foregroundColor: AppColors.onboardingBlueDeep,
                     ),
                     child: Text(
-                      'Cancel',
+                      appLanguage.t('common.cancel'),
                       style: display.copyWith(
                         fontSize: 15,
                         fontWeight: FontWeight.w700,

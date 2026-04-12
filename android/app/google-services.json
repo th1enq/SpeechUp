@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "106627727476",
+    "project_id": "speechup-43252",
+    "storage_bucket": "speechup-43252.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:106627727476:android:66d3b91f5b762d8fd51121",
+        "android_client_info": {
+          "package_name": "com.speechup.speechup"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAtR8DKxaEc8I0eYTXnVlxO5QKwIL8ssPQ"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
