@@ -3,9 +3,11 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../main.dart' show isFirebaseSupported;
 import '../l10n/app_language.dart';
+import '../services/speech_input_service.dart';
 import '../theme/app_colors.dart';
 import '../services/firestore_service.dart';
 import '../models/practice_session.dart';
+import 'analysis_screen.dart';
 
 class PracticeScreen extends StatefulWidget {
   const PracticeScreen({super.key});
@@ -41,7 +43,9 @@ class _PracticeScreenState extends State<PracticeScreen> {
                         color: Colors.white,
                         boxShadow: [
                           BoxShadow(
-                            color: AppColors.dashboardNavy.withValues(alpha: 0.06),
+                            color: AppColors.dashboardNavy.withValues(
+                              alpha: 0.06,
+                            ),
                             blurRadius: 12,
                             offset: const Offset(0, 4),
                           ),
@@ -67,7 +71,10 @@ class _PracticeScreenState extends State<PracticeScreen> {
                 IconButton(
                   onPressed: () {},
                   padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(minWidth: 40, minHeight: 40),
+                  constraints: const BoxConstraints(
+                    minWidth: 40,
+                    minHeight: 40,
+                  ),
                   icon: Icon(
                     Icons.notifications_outlined,
                     color: AppColors.dashboardNavy,
@@ -187,10 +194,8 @@ class _PracticeScreenState extends State<PracticeScreen> {
   }) {
     Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) => _RecordingScreen(
-          exerciseType: exerciseType,
-          content: content,
-        ),
+        builder: (_) =>
+            _RecordingScreen(exerciseType: exerciseType, content: content),
       ),
     );
   }
@@ -247,7 +252,10 @@ class _PracticeExerciseCard extends StatelessWidget {
         tagText = AppColors.practiceTagEasyText;
         watermark = Icons.menu_book_rounded;
         watermarkColor = AppColors.onboardingBlue;
-        action = _GradientStartButton(onTap: onTap, label: appLanguage.t('common.start'));
+        action = _GradientStartButton(
+          onTap: onTap,
+          label: appLanguage.t('common.start'),
+        );
         break;
       case _ExerciseVisual.shadowing:
         cardBg = AppColors.practiceCardLavender;
@@ -382,7 +390,9 @@ class _PracticeExerciseCard extends StatelessWidget {
                       style: style.copyWith(
                         fontSize: 14,
                         fontWeight: FontWeight.w500,
-                        fontStyle: bodyItalic ? FontStyle.italic : FontStyle.normal,
+                        fontStyle: bodyItalic
+                            ? FontStyle.italic
+                            : FontStyle.normal,
                         color: AppColors.dashboardTextMuted,
                         height: 1.5,
                       ),
@@ -478,53 +488,48 @@ class _OutlineStartButton extends StatelessWidget {
   }
 }
 
-class _RecordingScreen extends StatelessWidget {
+class _RecordingScreen extends StatefulWidget {
   final String exerciseType;
   final String content;
 
-  const _RecordingScreen({
-    required this.exerciseType,
-    required this.content,
-  });
+  const _RecordingScreen({required this.exerciseType, required this.content});
+
+  @override
+  State<_RecordingScreen> createState() => _RecordingScreenState();
+}
+
+class _RecordingScreenState extends State<_RecordingScreen> {
+  late final SpeechInputService _speechService;
+  bool _isSubmitting = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _speechService = SpeechInputService()..addListener(_handleSpeechUpdate);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _startListening();
+    });
+  }
+
+  @override
+  void dispose() {
+    _speechService.removeListener(_handleSpeechUpdate);
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     final display = GoogleFonts.plusJakartaSans();
-    void close() => Navigator.of(context).pop();
-
-    Future<void> saveAndClose() async {
-      if (!isFirebaseSupported) {
-        close();
-        return;
-      }
-      final user = FirebaseAuth.instance.currentUser;
-      if (user != null) {
-        final firestoreService = FirestoreService();
-        final session = PracticeSession(
-          userId: user.uid,
-          exerciseType: exerciseType,
-          content: content,
-          score: 82, // Simulated score
-          durationSeconds: 60,
-          fluency: 85,
-          pronunciation: 90,
-          speechSpeed: 75,
-          createdAt: DateTime.now(),
-        );
-        await firestoreService.savePracticeSession(session);
-
-        // Update user stats
-        final profile = await firestoreService.getUserProfile(user.uid);
-        if (profile != null) {
-          await firestoreService.updateUserProfile(user.uid, {
-            'totalSessions': profile.totalSessions + 1,
-            'totalSpeakingMinutes': profile.totalSpeakingMinutes + 1.0,
-          });
-        }
-        await firestoreService.updateStreak(user.uid);
-      }
-      close();
-    }
+    final transcript = _speechService.recognizedText;
+    final durationSeconds = _speechService.elapsed.inSeconds;
+    final wordsPerMinute = _calculateWordsPerMinute(
+      transcript,
+      durationSeconds,
+    );
+    final pausesLabel = _speechService.isListening
+        ? appLanguage.t('practice.listening')
+        : appLanguage.t('common.stop');
+    final clarity = _estimateClarity(_effectiveSoundLevel).round();
 
     return Scaffold(
       body: Container(
@@ -578,7 +583,7 @@ class _RecordingScreen extends StatelessWidget {
                       shape: const CircleBorder(),
                       clipBehavior: Clip.antiAlias,
                       child: InkWell(
-                        onTap: close,
+                        onTap: _closeScreen,
                         customBorder: const CircleBorder(),
                         child: const SizedBox(
                           width: 40,
@@ -595,7 +600,9 @@ class _RecordingScreen extends StatelessWidget {
                 ),
                 const SizedBox(height: 28),
                 Text(
-                  appLanguage.t('practice.listening'),
+                  _speechService.isListening
+                      ? appLanguage.t('practice.listening')
+                      : appLanguage.t('practice.tapToStart'),
                   textAlign: TextAlign.center,
                   style: display.copyWith(
                     fontSize: 26,
@@ -604,10 +611,10 @@ class _RecordingScreen extends StatelessWidget {
                     height: 1.2,
                   ),
                 ),
-                if (content.isNotEmpty) ...[
+                if (widget.content.isNotEmpty) ...[
                   const SizedBox(height: 14),
                   Text(
-                    content,
+                    widget.content,
                     textAlign: TextAlign.center,
                     style: display.copyWith(
                       fontSize: 15,
@@ -618,7 +625,11 @@ class _RecordingScreen extends StatelessWidget {
                   ),
                 ],
                 const SizedBox(height: 32),
-                const Center(child: _RecordingWaveform()),
+                Center(
+                  child: _RecordingWaveform(
+                    heights: _buildWaveHeights(_effectiveSoundLevel),
+                  ),
+                ),
                 const SizedBox(height: 28),
                 Center(
                   child: Container(
@@ -629,7 +640,9 @@ class _RecordingScreen extends StatelessWidget {
                       gradient: AppColors.recordingMicGradient,
                       boxShadow: [
                         BoxShadow(
-                          color: AppColors.onboardingBlue.withValues(alpha: 0.42),
+                          color: AppColors.onboardingBlue.withValues(
+                            alpha: 0.42,
+                          ),
                           blurRadius: 28,
                           spreadRadius: 2,
                           offset: const Offset(0, 12),
@@ -650,7 +663,9 @@ class _RecordingScreen extends StatelessWidget {
                       child: _RecordingMetricCard(
                         icon: Icons.speed_rounded,
                         label: appLanguage.t('practice.metricSpeed'),
-                        value: appLanguage.t('practice.normal'),
+                        value: wordsPerMinute > 0
+                            ? '$wordsPerMinute ${appLanguage.t('progress.wpm')}'
+                            : '--',
                       ),
                     ),
                     const SizedBox(width: 10),
@@ -658,7 +673,7 @@ class _RecordingScreen extends StatelessWidget {
                       child: _RecordingMetricCard(
                         icon: Icons.pause_rounded,
                         label: appLanguage.t('practice.metricPauses'),
-                        value: appLanguage.t('practice.none'),
+                        value: pausesLabel,
                       ),
                     ),
                     const SizedBox(width: 10),
@@ -666,10 +681,59 @@ class _RecordingScreen extends StatelessWidget {
                       child: _RecordingMetricCard(
                         icon: Icons.graphic_eq_rounded,
                         label: appLanguage.t('practice.metricClarity'),
-                        value: appLanguage.t('practice.high'),
+                        value: '$clarity%',
                       ),
                     ),
                   ],
+                ),
+                const SizedBox(height: 22),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(18),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.9),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Text(
+                            appLanguage.t('practice.liveTranscript'),
+                            style: display.copyWith(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w800,
+                              color: AppColors.dashboardNavy,
+                            ),
+                          ),
+                          const Spacer(),
+                          Text(
+                            _formatDuration(_speechService.elapsed),
+                            style: display.copyWith(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w700,
+                              color: AppColors.onboardingBlueDeep,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+                      Text(
+                        transcript.isEmpty
+                            ? appLanguage.t('practice.tapToStart')
+                            : transcript,
+                        style: display.copyWith(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w500,
+                          color: transcript.isEmpty
+                              ? AppColors.dashboardTextMuted
+                              : AppColors.dashboardNavy,
+                          height: 1.45,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
                 const SizedBox(height: 36),
                 SizedBox(
@@ -677,7 +741,15 @@ class _RecordingScreen extends StatelessWidget {
                   child: Material(
                     color: Colors.transparent,
                     child: InkWell(
-                      onTap: saveAndClose,
+                      onTap: _isSubmitting
+                          ? null
+                          : () {
+                              if (_speechService.isListening) {
+                                _stopAndAnalyze();
+                              } else {
+                                _startListening();
+                              }
+                            },
                       borderRadius: BorderRadius.circular(27),
                       child: Ink(
                         decoration: BoxDecoration(
@@ -685,30 +757,69 @@ class _RecordingScreen extends StatelessWidget {
                           borderRadius: BorderRadius.circular(27),
                           boxShadow: [
                             BoxShadow(
-                              color: AppColors.onboardingBlue.withValues(alpha: 0.28),
+                              color: AppColors.onboardingBlue.withValues(
+                                alpha: 0.28,
+                              ),
                               blurRadius: 18,
                               offset: const Offset(0, 8),
                             ),
                           ],
                         ),
                         child: Center(
-                          child: Text(
-                            appLanguage.t('practice.stopRecording'),
-                            style: display.copyWith(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w800,
-                              color: Colors.white,
-                            ),
-                          ),
+                          child: _isSubmitting
+                              ? const SizedBox(
+                                  width: 22,
+                                  height: 22,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2.5,
+                                    color: Colors.white,
+                                  ),
+                                )
+                              : Text(
+                                  _speechService.isListening
+                                      ? appLanguage.t('practice.stopRecording')
+                                      : appLanguage.t('common.start'),
+                                  style: display.copyWith(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w800,
+                                    color: Colors.white,
+                                  ),
+                                ),
                         ),
                       ),
                     ),
                   ),
                 ),
+                if (!_speechService.isSupportedPlatform ||
+                    _speechService.lastError != null) ...[
+                  const SizedBox(height: 16),
+                  Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFFF1F2),
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: Text(
+                      !_speechService.isSupportedPlatform
+                          ? appLanguage.t('practice.unsupportedPlatform')
+                          : _speechService.errorSummary.contains(
+                              'service is not installed or unavailable',
+                            )
+                          ? '${appLanguage.t('practice.recognizerUnavailable')}\n${_speechService.errorSummary}'
+                          : '${appLanguage.t('practice.permissionDenied')}\n${_speechService.errorSummary}',
+                      style: display.copyWith(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.error,
+                        height: 1.4,
+                      ),
+                    ),
+                  ),
+                ],
                 const SizedBox(height: 16),
                 Center(
                   child: TextButton(
-                    onPressed: close,
+                    onPressed: _closeScreen,
                     style: TextButton.styleFrom(
                       foregroundColor: AppColors.onboardingBlueDeep,
                     ),
@@ -729,14 +840,186 @@ class _RecordingScreen extends StatelessWidget {
       ),
     );
   }
+
+  double get _effectiveSoundLevel {
+    final level = _speechService.soundLevel;
+    if (level.isNaN || level.isInfinite) return 0;
+    return level.clamp(0, 40).toDouble();
+  }
+
+  Future<void> _startListening() async {
+    if (!_speechService.isSupportedPlatform) {
+      setState(() {});
+      return;
+    }
+
+    _speechService.resetSession();
+    final didStart = await _speechService.startListening(
+      localeId: _localeIdForApp(),
+    );
+    if (!didStart && mounted) {
+      setState(() {});
+    }
+  }
+
+  Future<void> _stopAndAnalyze() async {
+    if (_isSubmitting) return;
+
+    setState(() => _isSubmitting = true);
+    await _speechService.stopListening();
+
+    final transcript = _speechService.recognizedText;
+    final durationSeconds = _speechService.elapsed.inSeconds;
+    if (transcript.isEmpty) {
+      if (mounted) {
+        setState(() => _isSubmitting = false);
+        _showSnackBar(appLanguage.t('practice.noSpeechDetected'));
+      }
+      return;
+    }
+
+    await _savePracticeSession(
+      transcript: transcript,
+      durationSeconds: durationSeconds,
+    );
+
+    if (!mounted) return;
+    setState(() => _isSubmitting = false);
+    Navigator.of(context).pushReplacement(
+      MaterialPageRoute(
+        builder: (_) => AnalysisScreen(
+          transcript: transcript,
+          durationSeconds: durationSeconds,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _savePracticeSession({
+    required String transcript,
+    required int durationSeconds,
+  }) async {
+    if (!isFirebaseSupported) return;
+
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    final wordsPerMinute = _calculateWordsPerMinute(
+      transcript,
+      durationSeconds,
+    );
+    final fluency = _calculateFluencyScore(durationSeconds, transcript);
+    final pronunciation = _calculatePronunciationScore(transcript);
+    final score = ((fluency + pronunciation) / 2).round();
+
+    final firestoreService = FirestoreService();
+    final session = PracticeSession(
+      userId: user.uid,
+      exerciseType: widget.exerciseType,
+      content: transcript,
+      score: score,
+      durationSeconds: durationSeconds,
+      fluency: fluency,
+      pronunciation: pronunciation,
+      speechSpeed: wordsPerMinute,
+      createdAt: DateTime.now(),
+    );
+    await firestoreService.savePracticeSession(session);
+
+    final profile = await firestoreService.getUserProfile(user.uid);
+    if (profile != null) {
+      await firestoreService.updateUserProfile(user.uid, {
+        'totalSessions': profile.totalSessions + 1,
+        'totalSpeakingMinutes':
+            profile.totalSpeakingMinutes + (durationSeconds / 60),
+      });
+    }
+    await firestoreService.updateStreak(user.uid);
+  }
+
+  void _handleSpeechUpdate() {
+    if (!mounted) return;
+    setState(() {});
+  }
+
+  void _closeScreen() {
+    _speechService.cancelListening();
+    Navigator.of(context).pop();
+  }
+
+  void _showSnackBar(String message) {
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  String _localeIdForApp() {
+    return appLanguage.locale.languageCode == 'vi' ? 'vi_VN' : 'en_US';
+  }
+
+  int _calculateWordsPerMinute(String transcript, int durationSeconds) {
+    final words = transcript
+        .trim()
+        .split(RegExp(r'\s+'))
+        .where((word) => word.isNotEmpty)
+        .length;
+    if (words == 0 || durationSeconds <= 0) return 0;
+    return ((words / durationSeconds) * 60).round();
+  }
+
+  int _calculateFluencyScore(int durationSeconds, String transcript) {
+    final wordsPerMinute = _calculateWordsPerMinute(
+      transcript,
+      durationSeconds,
+    );
+    if (wordsPerMinute == 0) return 0;
+    final distanceFromTarget = (135 - wordsPerMinute).abs();
+    return (100 - distanceFromTarget).clamp(55, 98).toInt();
+  }
+
+  int _calculatePronunciationScore(String transcript) {
+    final wordCount = transcript
+        .trim()
+        .split(RegExp(r'\s+'))
+        .where((word) => word.isNotEmpty)
+        .length;
+    if (wordCount == 0) return 0;
+    return (65 + (wordCount * 2).clamp(0, 30)).toInt();
+  }
+
+  double _estimateClarity(double soundLevel) {
+    return (55 + soundLevel * 1.1).clamp(55, 99);
+  }
+
+  List<double> _buildWaveHeights(double soundLevel) {
+    final normalized = (soundLevel / 40).clamp(0.0, 1.0);
+    const base = [
+      18.0,
+      28.0,
+      38.0,
+      50.0,
+      64.0,
+      78.0,
+      64.0,
+      50.0,
+      38.0,
+      28.0,
+      18.0,
+    ];
+    return [for (final height in base) height * (0.45 + normalized * 0.75)];
+  }
+
+  String _formatDuration(Duration duration) {
+    final minutes = duration.inMinutes.remainder(60).toString().padLeft(2, '0');
+    final seconds = duration.inSeconds.remainder(60).toString().padLeft(2, '0');
+    return '$minutes:$seconds';
+  }
 }
 
 class _RecordingWaveform extends StatelessWidget {
-  const _RecordingWaveform();
+  final List<double> heights;
 
-  static const List<double> _heights = [
-    22, 32, 42, 52, 64, 76, 64, 52, 42, 32, 22,
-  ];
+  const _RecordingWaveform({required this.heights});
 
   static const List<Color> _colors = [
     Color(0xFFB9DAFF),
@@ -760,11 +1043,11 @@ class _RecordingWaveform extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.end,
       children: [
-        for (var i = 0; i < _heights.length; i++) ...[
+        for (var i = 0; i < heights.length; i++) ...[
           if (i > 0) const SizedBox(width: gap),
           Container(
             width: barWidth,
-            height: _heights[i],
+            height: heights[i],
             decoration: BoxDecoration(
               color: _colors[i],
               borderRadius: BorderRadius.circular(barWidth / 2),
@@ -806,11 +1089,7 @@ class _RecordingMetricCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          Icon(
-            icon,
-            color: AppColors.onboardingBlueDeep,
-            size: 22,
-          ),
+          Icon(icon, color: AppColors.onboardingBlueDeep, size: 22),
           const SizedBox(height: 10),
           Text(
             label,
