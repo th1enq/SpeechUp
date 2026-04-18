@@ -7,6 +7,7 @@ import '../l10n/app_language.dart';
 import '../theme/app_colors.dart';
 import '../services/auth_service.dart';
 import '../services/firestore_service.dart';
+import '../services/microphone_settings_service.dart';
 import '../models/user_profile.dart';
 
 class ProfileScreen extends StatefulWidget {
@@ -22,7 +23,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
   String _selectedDifficulty = 'Intermediate';
   final AuthService _authService = AuthService();
   final FirestoreService _firestoreService = FirestoreService();
+  final MicrophoneSettingsService _micSettingsService =
+      MicrophoneSettingsService();
   UserProfile? _profile;
+  MicrophoneSettings _micSettings = MicrophoneSettings.defaults;
 
   static const List<String> _difficulties = [
     'Beginner',
@@ -41,12 +45,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final savedLanguage = prefs.getString('profile_language');
     final savedDifficulty = prefs.getString('profile_difficulty');
     final savedNotifications = prefs.getBool('profile_notifications_enabled');
+    final micSettings = await _micSettingsService.load();
 
     if (mounted) {
       setState(() {
         _selectedLanguage = savedLanguage ?? appLanguage.currentLanguageDisplayName;
         _selectedDifficulty = savedDifficulty ?? _selectedDifficulty;
         _notificationsOn = savedNotifications ?? _notificationsOn;
+        _micSettings = micSettings;
       });
     }
     appLanguage.setByDisplayName(_selectedLanguage);
@@ -62,6 +68,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
             _selectedLanguage = profile.language;
             _selectedDifficulty = profile.difficulty;
             _notificationsOn = profile.notificationsEnabled;
+            _micSettings = _micSettings.copyWith(
+              localeId: profile.microphoneLocaleId,
+              privateMode: profile.privateMode,
+              saveTranscripts: profile.saveTranscripts,
+            );
             appLanguage.setByDisplayName(_selectedLanguage);
           }
         });
@@ -133,6 +144,138 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final nextValue = !_notificationsOn;
     setState(() => _notificationsOn = nextValue);
     await _updateSettings(notificationsEnabled: nextValue);
+  }
+
+  Future<void> _saveMicSettings(MicrophoneSettings settings) async {
+    setState(() => _micSettings = settings);
+    await _micSettingsService.save(settings);
+    if (!isFirebaseSupported) return;
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+    await _firestoreService.updateUserProfile(user.uid, {
+      'microphoneLocaleId': settings.localeId,
+      'privateMode': settings.privateMode,
+      'saveTranscripts': settings.saveTranscripts,
+    });
+  }
+
+  void _showMicrophoneSettings() {
+    var draft = _micSettings;
+    final base = GoogleFonts.plusJakartaSans();
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            return SafeArea(
+              child: SingleChildScrollView(
+                padding: EdgeInsets.fromLTRB(
+                  20,
+                  8,
+                  20,
+                  24 + MediaQuery.paddingOf(context).bottom,
+                ),
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(
+                    maxHeight: MediaQuery.sizeOf(context).height * 0.82,
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Microphone',
+                        style: base.copyWith(
+                          fontSize: 20,
+                          fontWeight: FontWeight.w800,
+                          color: AppColors.profileNavy,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'SpeechUp only listens during your practice session.',
+                        style: base.copyWith(
+                          fontSize: 14,
+                          height: 1.45,
+                          color: AppColors.dashboardTextMuted,
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                      ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: const Icon(Icons.language_rounded),
+                        title: const Text('Recognition language'),
+                        subtitle: Text(
+                          draft.localeId == 'vi_VN'
+                              ? 'Tiếng Việt'
+                              : 'English (US)',
+                        ),
+                        trailing: const Icon(Icons.swap_horiz_rounded),
+                        onTap: () {
+                          setSheetState(() {
+                            draft = draft.copyWith(
+                              localeId: draft.localeId == 'vi_VN'
+                                  ? 'en_US'
+                                  : 'vi_VN',
+                            );
+                          });
+                        },
+                      ),
+                      SwitchListTile.adaptive(
+                        contentPadding: EdgeInsets.zero,
+                        value: draft.privateMode,
+                        title: const Text('Private mode'),
+                        subtitle:
+                            const Text('Ask before saving session details.'),
+                        onChanged: (value) {
+                          setSheetState(() {
+                            draft = draft.copyWith(privateMode: value);
+                          });
+                        },
+                      ),
+                      SwitchListTile.adaptive(
+                        contentPadding: EdgeInsets.zero,
+                        value: draft.saveTranscripts,
+                        title: const Text('Save transcripts'),
+                        subtitle:
+                            const Text('Turn off to save only summary insights.'),
+                        onChanged: (value) {
+                          setSheetState(() {
+                            draft = draft.copyWith(saveTranscripts: value);
+                          });
+                        },
+                      ),
+                      const SizedBox(height: 12),
+                      SizedBox(
+                        width: double.infinity,
+                        height: 52,
+                        child: ElevatedButton(
+                          onPressed: () async {
+                            await _saveMicSettings(draft);
+                            if (context.mounted) Navigator.pop(context);
+                          },
+                          child: const Text('Save microphone settings'),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      SizedBox(
+                        width: double.infinity,
+                        child: TextButton(
+                          onPressed: () => _micSettingsService.openSettings(),
+                          child: const Text('Open system settings'),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
   }
 
   Future<String?> _showOptionSheet({
@@ -329,7 +472,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       iconColor: AppColors.progressMilestonePurple,
                       iconCircleBg: const Color(0xFFF3E8FF),
                       value: (_profile?.totalSpeakingMinutes ?? 0).toStringAsFixed(1),
-                      valueExtra: 'h',
+                      valueExtra: 'm',
                       label: t('profile.speakingTime'),
                     ),
                   ),
@@ -401,6 +544,30 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 ),
               ),
               const SizedBox(height: 14),
+              _SettingsRow(
+                base: base,
+                icon: Icons.mic_none_rounded,
+                iconColor: AppColors.calmMint,
+                iconBg: AppColors.calmMintSurface,
+                title: 'Microphone',
+                subtitle: _micSettings.localeId == 'vi_VN'
+                    ? 'Tiếng Việt • Private practice'
+                    : 'English (US) • Private practice',
+                onTap: _showMicrophoneSettings,
+              ),
+              const SizedBox(height: 10),
+              _SettingsRow(
+                base: base,
+                icon: Icons.lock_outline_rounded,
+                iconColor: AppColors.calmText,
+                iconBg: AppColors.calmBlueSurface,
+                title: 'Privacy',
+                subtitle: _micSettings.privateMode
+                    ? 'Private mode on • You choose what to save'
+                    : 'Private mode off • Progress can be saved',
+                onTap: _showMicrophoneSettings,
+              ),
+              const SizedBox(height: 10),
               _SettingsRow(
                 base: base,
                 icon: Icons.language_rounded,

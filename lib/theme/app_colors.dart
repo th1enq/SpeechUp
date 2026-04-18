@@ -1,6 +1,17 @@
 import 'package:flutter/material.dart';
 
 class AppColors {
+  // SpeechUp Calm refresh
+  static const Color calmMint = Color(0xFF7FD8C3);
+  static const Color calmBlue = Color(0xFFA9D6F5);
+  static const Color calmBackground = Color(0xFFF8F7F3);
+  static const Color calmText = Color(0xFF2F3640);
+  static const Color calmTextSecondary = Color(0xFF6B7280);
+  static const Color calmAmber = Color(0xFFF4B96A);
+  static const Color calmCoral = Color(0xFFF28B82);
+  static const Color calmMintSurface = Color(0xFFEAF8F4);
+  static const Color calmBlueSurface = Color(0xFFEEF7FE);
+
   // Primary palette - Calm Cyan + Health Green
   static const Color primary = Color(0xFF0891B2);
   static const Color primaryLight = Color(0xFF22D3EE);
@@ -137,7 +148,7 @@ class AppColors {
   );
 
   static const Color recordingCloseBtnBg = Color(0xFFDCE8FF);
-  static const Color recordingDotRecording = Color(0xFFEF4444);
+  static const Color recordingDotRecording = calmCoral;
 
   /// Progress / My Journey (Figma Progress Tracking.png)
   static const Color progressAccentBlue = Color(0xFF005A9C);

@@ -16,6 +16,10 @@
 	<string>6.0</string>
 	<key>CFBundleName</key>
 	<string>speechup</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>SpeechUp uses the microphone only during private practice sessions.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>SpeechUp uses speech recognition to show your practice words in real time.</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>

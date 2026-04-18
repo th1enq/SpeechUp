@@ -206,8 +206,9 @@ class _LoginScreenState extends State<LoginScreen> {
                           color: AppColors.onboardingTextMuted,
                           size: 22,
                         ),
-                        onPressed: () =>
-                            setState(() => _obscurePassword = !_obscurePassword),
+                        onPressed: () => setState(
+                          () => _obscurePassword = !_obscurePassword,
+                        ),
                       ),
                       validator: (value) {
                         if (value == null || value.isEmpty) {
@@ -228,8 +229,10 @@ class _LoginScreenState extends State<LoginScreen> {
               if (_errorMessage != null)
                 Container(
                   margin: const EdgeInsets.only(bottom: 14),
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 12,
+                  ),
                   decoration: BoxDecoration(
                     color: AppColors.error.withValues(alpha: 0.08),
                     borderRadius: BorderRadius.circular(14),
@@ -282,8 +285,9 @@ class _LoginScreenState extends State<LoginScreen> {
                             ? null
                             : [
                                 BoxShadow(
-                                  color: AppColors.onboardingBlue
-                                      .withValues(alpha: 0.28),
+                                  color: AppColors.onboardingBlue.withValues(
+                                    alpha: 0.28,
+                                  ),
                                   blurRadius: 18,
                                   offset: const Offset(0, 8),
                                 ),
@@ -297,7 +301,8 @@ class _LoginScreenState extends State<LoginScreen> {
                                 child: CircularProgressIndicator(
                                   strokeWidth: 2.5,
                                   valueColor: AlwaysStoppedAnimation<Color>(
-                                      Colors.white),
+                                    Colors.white,
+                                  ),
                                 ),
                               )
                             : Text(
@@ -320,9 +325,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   Text(
-                    _isLogin
-                        ? 'Chưa có tài khoản? '
-                        : 'Đã có tài khoản? ',
+                    _isLogin ? 'Chưa có tài khoản? ' : 'Đã có tài khoản? ',
                     style: base.copyWith(
                       fontSize: 14,
                       fontWeight: FontWeight.w500,
@@ -400,16 +403,14 @@ class _LoginScreenState extends State<LoginScreen> {
           fontWeight: FontWeight.w500,
           color: AppColors.onboardingTextMuted,
         ),
-        prefixIcon: Icon(
-          icon,
-          color: AppColors.onboardingTextMuted,
-          size: 22,
-        ),
+        prefixIcon: Icon(icon, color: AppColors.onboardingTextMuted, size: 22),
         suffixIcon: suffixIcon,
         filled: true,
         fillColor: Colors.white,
-        contentPadding:
-            const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 18,
+          vertical: 16,
+        ),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(16),
           borderSide: BorderSide(
@@ -431,16 +432,11 @@ class _LoginScreenState extends State<LoginScreen> {
         ),
         errorBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(16),
-          borderSide: BorderSide(
-            color: AppColors.error.withValues(alpha: 0.5),
-          ),
+          borderSide: BorderSide(color: AppColors.error.withValues(alpha: 0.5)),
         ),
         focusedErrorBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(16),
-          borderSide: const BorderSide(
-            color: AppColors.error,
-            width: 1.5,
-          ),
+          borderSide: const BorderSide(color: AppColors.error, width: 1.5),
         ),
       ),
       validator: validator,
@@ -461,7 +457,11 @@ class _LoginScreenState extends State<LoginScreen> {
           borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
         ),
         padding: EdgeInsets.fromLTRB(
-            24, 12, 24, 24 + MediaQuery.paddingOf(context).bottom),
+          24,
+          12,
+          24,
+          24 + MediaQuery.paddingOf(context).bottom,
+        ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -509,8 +509,9 @@ class _LoginScreenState extends State<LoginScreen> {
                   onTap: () async {
                     if (resetEmailController.text.trim().isNotEmpty) {
                       try {
-                        await _authService
-                            .resetPassword(resetEmailController.text.trim());
+                        await _authService.resetPassword(
+                          resetEmailController.text.trim(),
+                        );
                         if (context.mounted) {
                           Navigator.pop(context);
                           ScaffoldMessenger.of(context).showSnackBar(

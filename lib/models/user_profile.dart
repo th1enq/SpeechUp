@@ -12,6 +12,9 @@ class UserProfile {
   final String language;
   final String difficulty;
   final bool notificationsEnabled;
+  final bool privateMode;
+  final bool saveTranscripts;
+  final String microphoneLocaleId;
 
   const UserProfile({
     required this.uid,
@@ -25,6 +28,9 @@ class UserProfile {
     this.language = 'English (US)',
     this.difficulty = 'Intermediate',
     this.notificationsEnabled = true,
+    this.privateMode = true,
+    this.saveTranscripts = true,
+    this.microphoneLocaleId = 'en_US',
   });
 
   factory UserProfile.fromFirestore(DocumentSnapshot doc) {
@@ -41,6 +47,9 @@ class UserProfile {
       language: data['language'] ?? 'English (US)',
       difficulty: data['difficulty'] ?? 'Intermediate',
       notificationsEnabled: data['notificationsEnabled'] ?? true,
+      privateMode: data['privateMode'] ?? true,
+      saveTranscripts: data['saveTranscripts'] ?? true,
+      microphoneLocaleId: data['microphoneLocaleId'] ?? 'en_US',
     );
   }
 
@@ -56,6 +65,9 @@ class UserProfile {
       'language': language,
       'difficulty': difficulty,
       'notificationsEnabled': notificationsEnabled,
+      'privateMode': privateMode,
+      'saveTranscripts': saveTranscripts,
+      'microphoneLocaleId': microphoneLocaleId,
     };
   }
 
@@ -69,6 +81,9 @@ class UserProfile {
     String? language,
     String? difficulty,
     bool? notificationsEnabled,
+    bool? privateMode,
+    bool? saveTranscripts,
+    String? microphoneLocaleId,
   }) {
     return UserProfile(
       uid: uid,
@@ -82,6 +97,9 @@ class UserProfile {
       language: language ?? this.language,
       difficulty: difficulty ?? this.difficulty,
       notificationsEnabled: notificationsEnabled ?? this.notificationsEnabled,
+      privateMode: privateMode ?? this.privateMode,
+      saveTranscripts: saveTranscripts ?? this.saveTranscripts,
+      microphoneLocaleId: microphoneLocaleId ?? this.microphoneLocaleId,
     );
   }
 }

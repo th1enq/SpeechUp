@@ -2,10 +2,15 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:permission_handler/permission_handler.dart';
 import '../main.dart' show isFirebaseSupported;
 import '../theme/app_colors.dart';
 import '../widgets/shared_widgets.dart';
+import '../services/audio_recording_service.dart';
+import '../services/conversation_ai_service.dart';
 import '../services/firestore_service.dart';
+import '../services/microphone_settings_service.dart';
+import '../services/transcription_api_service.dart';
 
 class ConversationScreen extends StatefulWidget {
   const ConversationScreen({super.key});
@@ -17,12 +22,24 @@ class ConversationScreen extends StatefulWidget {
 class _ConversationScreenState extends State<ConversationScreen> {
   bool _inConversation = false;
   String? _selectedScenario;
+  String _selectedCategory = 'Daily Communication';
+
+  static const _categories = [
+    'Daily Communication',
+    'Interview',
+    'Presentation',
+    'Ordering Food',
+    'Self Introduction',
+  ];
 
   final List<_Scenario> _scenarios = [
     _Scenario(
       id: 'cafe',
       title: 'Gọi đồ uống tại quán cà phê',
       description: 'Luyện tập gọi đồ uống và giao tiếp với nhân viên',
+      category: 'Ordering Food',
+      difficulty: 'Easy',
+      duration: '2-3 min',
       icon: Icons.coffee_rounded,
       color: AppColors.onboardingBlueDeep,
     ),
@@ -30,6 +47,9 @@ class _ConversationScreenState extends State<ConversationScreen> {
       id: 'interview',
       title: 'Phỏng vấn xin việc',
       description: 'Tập trả lời các câu hỏi phỏng vấn một cách tự tin',
+      category: 'Interview',
+      difficulty: 'Growing',
+      duration: '5 min',
       icon: Icons.work_rounded,
       color: AppColors.progressAccentBlue,
     ),
@@ -37,6 +57,9 @@ class _ConversationScreenState extends State<ConversationScreen> {
       id: 'phone',
       title: 'Gọi điện cho khách hàng',
       description: 'Tập giao tiếp qua điện thoại chuyên nghiệp',
+      category: 'Daily Communication',
+      difficulty: 'Medium',
+      duration: '3 min',
       icon: Icons.phone_in_talk_rounded,
       color: AppColors.onboardingBlue,
     ),
@@ -44,6 +67,9 @@ class _ConversationScreenState extends State<ConversationScreen> {
       id: 'present',
       title: 'Thuyết trình trước nhóm',
       description: 'Chuẩn bị cho bài thuyết trình trước đồng nghiệp',
+      category: 'Presentation',
+      difficulty: 'Growing',
+      duration: '5 min',
       icon: Icons.present_to_all_rounded,
       color: AppColors.progressMilestonePurple,
     ),
@@ -76,11 +102,14 @@ class _ConversationScreenState extends State<ConversationScreen> {
     }
 
     final base = GoogleFonts.plusJakartaSans();
+    final visibleScenarios = _scenarios
+        .where((scenario) => scenario.category == _selectedCategory)
+        .toList();
 
     return SafeArea(
       child: SingleChildScrollView(
         physics: const BouncingScrollPhysics(),
-        padding: const EdgeInsets.fromLTRB(20, 8, 20, 28),
+        padding: const EdgeInsets.fromLTRB(20, 8, 20, 112),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -104,8 +133,8 @@ class _ConversationScreenState extends State<ConversationScreen> {
                         ],
                       ),
                       child: Icon(
-                        Icons.chat_bubble_rounded,
-                        color: AppColors.onboardingBlue,
+                        Icons.flag_rounded,
+                        color: AppColors.calmMint,
                         size: 24,
                       ),
                     ),
@@ -126,7 +155,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
                   constraints:
                       const BoxConstraints(minWidth: 40, minHeight: 40),
                   icon: Icon(
-                    Icons.notifications_outlined,
+                    Icons.tune_rounded,
                     color: AppColors.dashboardNavy,
                     size: 26,
                   ),
@@ -135,7 +164,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
             ),
             const SizedBox(height: 22),
             Text(
-              'Hội thoại với AI',
+              'Choose a gentle challenge',
               style: base.copyWith(
                 fontSize: 28,
                 fontWeight: FontWeight.w800,
@@ -145,7 +174,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
             ),
             const SizedBox(height: 6),
             Text(
-              'Chọn tình huống để bắt đầu luyện tập',
+              'Practice real moments at your own pace.',
               style: base.copyWith(
                 fontSize: 15,
                 fontWeight: FontWeight.w500,
@@ -153,8 +182,56 @@ class _ConversationScreenState extends State<ConversationScreen> {
                 height: 1.45,
               ),
             ),
+            const SizedBox(height: 18),
+            SizedBox(
+              height: 40,
+              child: ListView.separated(
+                scrollDirection: Axis.horizontal,
+                itemCount: _categories.length,
+                separatorBuilder: (context, index) => const SizedBox(width: 10),
+                itemBuilder: (context, index) {
+                  final category = _categories[index];
+                  final selected = category == _selectedCategory;
+                  return ChoiceChip(
+                    selected: selected,
+                    label: Text(category),
+                    selectedColor: AppColors.calmMintSurface,
+                    backgroundColor: Colors.white,
+                    side: BorderSide(
+                      color: selected
+                          ? AppColors.calmMint
+                          : AppColors.dashboardTextMuted.withValues(alpha: 0.15),
+                    ),
+                    labelStyle: base.copyWith(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.dashboardNavy,
+                    ),
+                    onSelected: (_) {
+                      setState(() => _selectedCategory = category);
+                    },
+                  );
+                },
+              ),
+            ),
             const SizedBox(height: 22),
-            ..._scenarios.map((scenario) => Padding(
+            if (visibleScenarios.isEmpty)
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(22),
+                ),
+                child: Text(
+                  'No challenges here yet. Try another category.',
+                  style: base.copyWith(
+                    fontSize: 14,
+                    color: AppColors.dashboardTextMuted,
+                  ),
+                ),
+              ),
+            ...visibleScenarios.map((scenario) => Padding(
                   padding: const EdgeInsets.only(bottom: 12),
                   child: _ScenarioCard(
                     scenario: scenario,
@@ -256,6 +333,9 @@ class _Scenario {
   final String id;
   final String title;
   final String description;
+  final String category;
+  final String difficulty;
+  final String duration;
   final IconData icon;
   final Color color;
 
@@ -263,6 +343,9 @@ class _Scenario {
     required this.id,
     required this.title,
     required this.description,
+    required this.category,
+    required this.difficulty,
+    required this.duration,
     required this.icon,
     required this.color,
   });
@@ -334,6 +417,14 @@ class _ScenarioCard extends StatelessWidget {
                         height: 1.35,
                       ),
                     ),
+                    const SizedBox(height: 10),
+                    Wrap(
+                      spacing: 8,
+                      children: [
+                        _ScenarioPill(label: scenario.difficulty),
+                        _ScenarioPill(label: scenario.duration),
+                      ],
+                    ),
                   ],
                 ),
               ),
@@ -359,6 +450,32 @@ class _ScenarioCard extends StatelessWidget {
   }
 }
 
+class _ScenarioPill extends StatelessWidget {
+  final String label;
+
+  const _ScenarioPill({required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    final base = GoogleFonts.plusJakartaSans();
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+      decoration: BoxDecoration(
+        color: AppColors.calmMintSurface,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        label,
+        style: base.copyWith(
+          fontSize: 11,
+          fontWeight: FontWeight.w800,
+          color: AppColors.calmText,
+        ),
+      ),
+    );
+  }
+}
+
 // Conversation Chat Screen
 class _ConversationChat extends StatefulWidget {
   final _Scenario scenario;
@@ -373,105 +490,153 @@ class _ConversationChat extends StatefulWidget {
 
 class _ConversationChatState extends State<_ConversationChat> {
   final List<_ChatMessage> _messages = [];
+  final AudioRecordingService _audioRecordingService = AudioRecordingService();
+  final MicrophoneSettingsService _micSettingsService =
+      MicrophoneSettingsService();
+  final TranscriptionApiService _transcriptionService = TranscriptionApiService();
+  final ConversationAiService _aiService = ConversationAiService();
   bool _isTyping = false;
   bool _isUserRecording = false;
+  String _liveTranscript = '';
+  String? _recordingHelper;
+  double _soundLevel = 0;
+  MicrophoneSettings _micSettings = MicrophoneSettings.defaults;
   final ScrollController _scrollController = ScrollController();
-
-  // Simulated conversation flows
-  static const Map<String, List<List<String>>> _conversationFlows = {
-    'cafe': [
-      ['Xin chào! Chào mừng bạn đến quán cà phê. Bạn muốn dùng gì ạ?'],
-      ['Cho mình một ly cà phê sữa đá nhé.'],
-      ['Dạ vâng ạ! Bạn muốn size vừa hay lớn ạ?'],
-      ['Size vừa thôi, và cho mình thêm ít đường nhé.'],
-      ['Dạ được ạ! Bạn có muốn dùng thêm bánh ngọt không ạ? Hôm nay quán có croissant bơ mới ra lò rất thơm.'],
-      ['Nghe hấp dẫn quá, cho mình một cái croissant luôn nhé!'],
-      ['Tuyệt vời ạ! Một cà phê sữa đá size vừa ít đường và một croissant bơ. Tổng cộng 75 nghìn ạ. Bạn thanh toán bằng tiền mặt hay chuyển khoản ạ?'],
-    ],
-    'interview': [
-      ['Chào bạn, cảm ơn bạn đã đến phỏng vấn hôm nay. Bạn có thể giới thiệu đôi chút về bản thân mình không?'],
-      ['Dạ vâng, em xin chào. Em tên là Mai, em có 3 năm kinh nghiệm trong lĩnh vực truyền thông.'],
-      ['Rất tốt! Vậy điểm mạnh lớn nhất của bạn trong công việc là gì?'],
-      ['Điểm mạnh của em là khả năng lên kế hoạch nội dung và quản lý đa nhiệm.'],
-      ['Bạn có thể chia sẻ về một dự án mà bạn tự hào nhất không?'],
-    ],
-    'phone': [
-      ['Alô, xin chào! Đây là công ty ABC, tôi có thể giúp gì cho anh/chị?'],
-      ['Dạ chào anh, em là Mai từ công ty XYZ. Em gọi để trao đổi về đề xuất hợp tác mà bên em đã gửi.'],
-      ['À vâng, tôi đã nhận được đề xuất. Bạn có thể tóm tắt lại các điểm chính không?'],
-      ['Dạ vâng. Đề xuất chính là chương trình marketing liên kết, giúp tăng nhận diện thương hiệu cho cả hai bên.'],
-      ['Nghe khá thú vị. Về ngân sách dự kiến thì sao?'],
-    ],
-    'present': [
-      ['Chào mọi người, buổi thuyết trình bắt đầu nhé. Bạn có thể bắt đầu khi sẵn sàng.'],
-      ['Kính chào ban giám đốc, hôm nay em xin trình bày về chiến lược phát triển quý 3.'],
-      ['Phần tổng quan rất rõ ràng. Bạn có thể giải thích thêm về mục tiêu doanh thu không?'],
-    ],
-  };
 
   @override
   void initState() {
     super.initState();
-    // AI starts the conversation
-    _addAIMessage();
+    _loadMicSettings();
+    _requestAIReply();
   }
 
-  void _addAIMessage() {
-    final flow = _conversationFlows[widget.scenario.id] ?? _conversationFlows['cafe']!;
-    final aiMessages = <String>[];
-    for (int i = 0; i < flow.length; i += 2) {
-      aiMessages.add(flow[i][0]);
-    }
+  Future<void> _loadMicSettings() async {
+    final settings = await _micSettingsService.load();
+    if (mounted) setState(() => _micSettings = settings);
+  }
 
-    final aiIndex = _messages.where((m) => !m.isUser).length;
-    if (aiIndex < aiMessages.length) {
-      setState(() => _isTyping = true);
-      Future.delayed(const Duration(milliseconds: 1500), () {
-        if (mounted) {
-          setState(() {
-            _isTyping = false;
-            _messages.add(_ChatMessage(
-              text: aiMessages[aiIndex],
-              isUser: false,
-            ));
-          });
-          _scrollToBottom();
-        }
+  Future<void> _requestAIReply() async {
+    setState(() => _isTyping = true);
+    try {
+      final reply = await _aiService.nextReply(
+        scenarioId: widget.scenario.id,
+        scenarioTitle: widget.scenario.title,
+        messages: _messages
+            .map((message) => {
+                  'text': message.text,
+                  'isUser': message.isUser,
+                })
+            .toList(),
+      );
+      if (!mounted) return;
+      setState(() {
+        _isTyping = false;
+        _messages.add(_ChatMessage(text: reply, isUser: false));
       });
+      _scrollToBottom();
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _isTyping = false;
+        _messages.add(
+          const _ChatMessage(
+            text:
+                'Mình chưa kết nối được AI coach. Bạn cứ nói tiếp, SpeechUp vẫn đang lắng nghe.',
+            isUser: false,
+          ),
+        );
+      });
+      _scrollToBottom();
     }
   }
 
-  void _simulateUserResponse() {
-    final flow = _conversationFlows[widget.scenario.id] ?? _conversationFlows['cafe']!;
-    final userMessages = <String>[];
-    for (int i = 1; i < flow.length; i += 2) {
-      userMessages.add(flow[i][0]);
+  Future<void> _toggleUserRecording() async {
+    if (_isUserRecording) {
+      await _finishUserRecording();
+    } else {
+      await _startUserRecording();
+    }
+  }
+
+  Future<void> _startUserRecording() async {
+    final status = await _micSettingsService.microphoneStatus();
+    if (status != PermissionStatus.granted) {
+      final nextStatus = await _micSettingsService.requestMicrophone();
+      if (nextStatus != PermissionStatus.granted) {
+        if (mounted) {
+          setState(() => _recordingHelper = 'Cần quyền microphone để trả lời bằng giọng nói.');
+        }
+        return;
+      }
     }
 
-    final userIndex = _messages.where((m) => m.isUser).length;
-    if (userIndex < userMessages.length) {
+    try {
+      await _audioRecordingService.start(
+        onAmplitude: (level) {
+          if (!mounted) return;
+          setState(() {
+            _soundLevel = level;
+            _recordingHelper = level < -38
+                ? 'Bạn có thể bắt đầu bất cứ lúc nào.'
+                : 'Đang ghi âm câu trả lời của bạn...';
+          });
+        },
+      );
       setState(() {
         _isUserRecording = true;
+        _liveTranscript = '';
+        _recordingHelper = 'Đang ghi âm câu trả lời của bạn...';
+        _soundLevel = 0;
       });
-
-      Future.delayed(const Duration(milliseconds: 2000), () {
-        if (mounted) {
-          setState(() {
-            _isUserRecording = false;
-            _messages.add(_ChatMessage(
-              text: userMessages[userIndex],
-              isUser: true,
-            ));
-          });
-          _scrollToBottom();
-
-          // AI responds
-          Future.delayed(const Duration(milliseconds: 500), () {
-            if (mounted) _addAIMessage();
-          });
-        }
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _isUserRecording = false;
+        _recordingHelper = 'Không mở được microphone. Hãy kiểm tra cài đặt.';
       });
     }
+  }
+
+  Future<void> _finishUserRecording() async {
+    final audioFile = await _audioRecordingService.stop();
+    setState(() {
+      _isUserRecording = false;
+      _soundLevel = 0;
+      _recordingHelper = 'Đang chuyển giọng nói thành văn bản...';
+    });
+
+    if (audioFile == null) {
+      setState(() {
+        _recordingHelper = 'Không nhận được file ghi âm. Bạn có thể thử lại.';
+      });
+      return;
+    }
+
+    String text;
+    try {
+      text = await _transcriptionService.transcribe(
+        audioFile: audioFile,
+        languageCode: _micSettings.localeId.startsWith('vi') ? 'vi' : 'en',
+      );
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _recordingHelper =
+            'Đã ghi âm, nhưng chưa cấu hình API chuyển giọng nói thành văn bản.';
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('$error')),
+      );
+      return;
+    }
+
+    setState(() {
+      _messages.add(_ChatMessage(text: text, isUser: true));
+      _liveTranscript = text;
+      _recordingHelper = null;
+    });
+    _scrollToBottom();
+    await _requestAIReply();
   }
 
   void _scrollToBottom() {
@@ -488,6 +653,7 @@ class _ConversationChatState extends State<_ConversationChat> {
 
   @override
   void dispose() {
+    _audioRecordingService.dispose();
     // Save conversation before disposing
     if (_messages.isNotEmpty && widget.onSaveConversation != null) {
       final messageMaps = _messages.map((m) => {
@@ -612,62 +778,151 @@ class _ConversationChatState extends State<_ConversationChat> {
                 ),
               ],
             ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
               children: [
-                Material(
-                  color: const Color(0xFFFFEBEE),
-                  shape: const CircleBorder(),
-                  child: InkWell(
-                    onTap: widget.onExit,
-                    customBorder: const CircleBorder(),
-                    child: const SizedBox(
-                      width: 50,
-                      height: 50,
-                      child: Icon(
-                        Icons.close_rounded,
-                        color: AppColors.error,
-                        size: 24,
-                      ),
+                if (_isUserRecording || _liveTranscript.isNotEmpty || _recordingHelper != null) ...[
+                  Container(
+                    width: double.infinity,
+                    margin: const EdgeInsets.only(bottom: 12),
+                    padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+                    decoration: BoxDecoration(
+                      color: AppColors.calmMintSurface,
+                      borderRadius: BorderRadius.circular(18),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Icon(
+                              _isUserRecording
+                                  ? Icons.graphic_eq_rounded
+                                  : Icons.info_outline_rounded,
+                              color: AppColors.calmText,
+                              size: 18,
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                _recordingHelper ?? 'Câu trả lời của bạn',
+                                style: base.copyWith(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w800,
+                                  color: AppColors.calmText,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        if (_isUserRecording) ...[
+                          const SizedBox(height: 8),
+                          _ConversationWaveform(soundLevel: _soundLevel),
+                        ],
+                        if (_liveTranscript.isNotEmpty) ...[
+                          const SizedBox(height: 8),
+                          Text(
+                            _liveTranscript,
+                            style: base.copyWith(
+                              fontSize: 14,
+                              height: 1.45,
+                              color: AppColors.calmText,
+                            ),
+                          ),
+                        ],
+                      ],
                     ),
                   ),
-                ),
-                const SizedBox(width: 20),
-                MicButton(
-                  isRecording: _isUserRecording,
-                  onTap: _isUserRecording ? () {} : _simulateUserResponse,
-                  size: 64,
-                ),
-                const SizedBox(width: 20),
-                Material(
-                  color: AppColors.dashboardNavPill,
-                  shape: const CircleBorder(),
-                  child: InkWell(
-                    onTap: () {
-                      showModalBottomSheet(
-                        context: context,
-                        isScrollControlled: true,
-                        backgroundColor: Colors.transparent,
-                        builder: (context) => const _VoiceSettingsSheet(),
-                      );
-                    },
-                    customBorder: const CircleBorder(),
-                    child: SizedBox(
-                      width: 50,
-                      height: 50,
-                      child: Icon(
-                        Icons.tune_rounded,
-                        color: AppColors.onboardingBlueDeep,
-                        size: 24,
+                ],
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Material(
+                      color: AppColors.calmAmber.withValues(alpha: 0.18),
+                      shape: const CircleBorder(),
+                      child: InkWell(
+                        onTap: widget.onExit,
+                        customBorder: const CircleBorder(),
+                        child: const SizedBox(
+                          width: 50,
+                          height: 50,
+                          child: Icon(
+                            Icons.close_rounded,
+                            color: AppColors.calmText,
+                            size: 24,
+                          ),
+                        ),
                       ),
                     ),
-                  ),
+                    const SizedBox(width: 20),
+                    MicButton(
+                      isRecording: _isUserRecording,
+                      onTap: _toggleUserRecording,
+                      size: 64,
+                    ),
+                    const SizedBox(width: 20),
+                    Material(
+                      color: AppColors.dashboardNavPill,
+                      shape: const CircleBorder(),
+                      child: InkWell(
+                        onTap: () {
+                          showModalBottomSheet(
+                            context: context,
+                            isScrollControlled: true,
+                            backgroundColor: Colors.transparent,
+                            builder: (context) => const _VoiceSettingsSheet(),
+                          );
+                        },
+                        customBorder: const CircleBorder(),
+                        child: SizedBox(
+                          width: 50,
+                          height: 50,
+                          child: Icon(
+                            Icons.tune_rounded,
+                            color: AppColors.onboardingBlueDeep,
+                            size: 24,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),
           ),
         ],
       ),
+    );
+  }
+}
+
+class _ConversationWaveform extends StatelessWidget {
+  final double soundLevel;
+
+  const _ConversationWaveform({required this.soundLevel});
+
+  static const _bars = [10.0, 16.0, 26.0, 34.0, 24.0, 18.0, 12.0];
+
+  @override
+  Widget build(BuildContext context) {
+    final normalized = ((soundLevel + 2) / 12).clamp(0.0, 1.0);
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.end,
+      children: [
+        for (var i = 0; i < _bars.length; i++) ...[
+          if (i > 0) const SizedBox(width: 5),
+          AnimatedContainer(
+            duration: const Duration(milliseconds: 180),
+            width: 6,
+            height: _bars[i] * (0.7 + normalized * 0.6),
+            decoration: BoxDecoration(
+              color: (i.isEven ? AppColors.calmMint : AppColors.calmBlue),
+              borderRadius: BorderRadius.circular(6),
+            ),
+          ),
+        ],
+      ],
     );
   }
 }

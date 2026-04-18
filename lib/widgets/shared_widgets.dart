@@ -148,7 +148,7 @@ class _MicButtonState extends State<MicButton>
                     height: widget.size + 30,
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
-                      color: AppColors.error.withValues(
+                      color: AppColors.calmCoral.withValues(
                         alpha: 0.15 * (2 - _pulseAnimation.value),
                       ),
                     ),
@@ -163,7 +163,7 @@ class _MicButtonState extends State<MicButton>
                     height: widget.size + 50,
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
-                      color: AppColors.error.withValues(
+                      color: AppColors.calmAmber.withValues(
                         alpha: 0.08 * (2 - _pulseAnimation.value),
                       ),
                     ),
@@ -179,14 +179,16 @@ class _MicButtonState extends State<MicButton>
                     shape: BoxShape.circle,
                     gradient: widget.isRecording
                         ? const LinearGradient(
-                            colors: [Color(0xFFEF4444), Color(0xFFF87171)],
+                            colors: [AppColors.calmCoral, AppColors.calmAmber],
                           )
-                        : AppColors.dashboardHeroGradient,
+                        : const LinearGradient(
+                            colors: [AppColors.calmMint, AppColors.calmBlue],
+                          ),
                     boxShadow: [
                       BoxShadow(
                         color: (widget.isRecording
-                                ? AppColors.error
-                                : AppColors.onboardingBlue)
+                                ? AppColors.calmCoral
+                                : AppColors.calmMint)
                             .withValues(alpha: 0.4),
                         blurRadius: 20,
                         offset: const Offset(0, 6),

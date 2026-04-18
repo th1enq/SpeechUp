@@ -6,7 +6,7 @@ import '../theme/app_colors.dart';
 import 'home_screen.dart';
 import 'practice_screen.dart';
 import 'conversation_screen.dart';
-import 'progress_screen.dart';
+import 'learn_screen.dart';
 import 'profile_screen.dart';
 
 class MainShell extends StatefulWidget {
@@ -40,7 +40,7 @@ class _MainShellState extends State<MainShell> {
           ),
           const PracticeScreen(),
           const ConversationScreen(),
-          const ProgressScreen(),
+          const LearnScreen(),
           const ProfileScreen(),
         ],
       ),
@@ -99,19 +99,19 @@ class _MainShellState extends State<MainShell> {
                   label: t('nav.home'),
                 ),
                 NavigationDestination(
-                  icon: Icon(Icons.fitness_center_rounded),
-                  selectedIcon: Icon(Icons.fitness_center_rounded),
+                  icon: Icon(Icons.mic_rounded),
+                  selectedIcon: Icon(Icons.mic_rounded),
                   label: t('nav.practice'),
                 ),
                 NavigationDestination(
-                  icon: Icon(Icons.chat_bubble_rounded),
-                  selectedIcon: Icon(Icons.chat_bubble_rounded),
-                  label: t('nav.chat'),
+                  icon: Icon(Icons.flag_rounded),
+                  selectedIcon: Icon(Icons.flag_rounded),
+                  label: t('nav.challenge'),
                 ),
                 NavigationDestination(
-                  icon: Icon(Icons.show_chart_rounded),
-                  selectedIcon: Icon(Icons.show_chart_rounded),
-                  label: t('nav.progress'),
+                  icon: Icon(Icons.menu_book_rounded),
+                  selectedIcon: Icon(Icons.menu_book_rounded),
+                  label: t('nav.learn'),
                 ),
                 NavigationDestination(
                   icon: Icon(Icons.person_rounded),

@@ -14,9 +14,18 @@ class FirestoreService {
 
   /// Get user profile
   Future<UserProfile?> getUserProfile(String uid) async {
-    final doc = await _db.collection('users').doc(uid).get();
-    if (!doc.exists) return null;
-    return UserProfile.fromFirestore(doc);
+    try {
+      final doc = await _db.collection('users').doc(uid).get();
+      if (!doc.exists) return null;
+      return UserProfile.fromFirestore(doc);
+    } on FirebaseException catch (error) {
+      if (error.code == 'permission-denied' ||
+          error.code == 'unavailable' ||
+          error.code == 'failed-precondition') {
+        return null;
+      }
+      rethrow;
+    }
   }
 
   /// Update user profile fields
@@ -39,6 +48,52 @@ class FirestoreService {
   Future<DocumentReference> savePracticeSession(
       PracticeSession session) async {
     return await _db.collection('practice_sessions').add(session.toFirestore());
+  }
+
+  /// Save a session and update profile counters in one user-facing action.
+  Future<DocumentReference> savePracticeSessionAndUpdateStats(
+    PracticeSession session,
+  ) async {
+    final sessionRef =
+        await _db.collection('practice_sessions').add(session.toFirestore());
+
+    final userRef = _db.collection('users').doc(session.userId);
+    final profile = await getUserProfile(session.userId);
+    if (profile != null) {
+      final nextSessionCount = profile.totalSessions + 1;
+      final nextMinutes =
+          profile.totalSpeakingMinutes + (session.durationSeconds / 60);
+      final nextAverageScore = nextSessionCount == 0
+          ? session.score
+          : (((profile.averageScore * profile.totalSessions) + session.score) /
+                  nextSessionCount)
+              .round();
+
+      await userRef.update({
+        'totalSessions': nextSessionCount,
+        'totalSpeakingMinutes': nextMinutes,
+        'averageScore': nextAverageScore,
+      });
+      await updateStreak(session.userId);
+    } else {
+      await userRef.set({
+        'displayName': 'User',
+        'email': '',
+        'createdAt': FieldValue.serverTimestamp(),
+        'totalSessions': 1,
+        'totalSpeakingMinutes': session.durationSeconds / 60,
+        'averageScore': session.score,
+        'streakDays': 1,
+        'language': 'English (US)',
+        'difficulty': 'Intermediate',
+        'notificationsEnabled': true,
+        'privateMode': true,
+        'saveTranscripts': true,
+        'microphoneLocaleId': 'en_US',
+      }, SetOptions(merge: true));
+    }
+
+    return sessionRef;
   }
 
   /// Get recent practice sessions for a user
