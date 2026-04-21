@@ -18,7 +18,9 @@ class AppLanguage extends ChangeNotifier {
       'common.monday': 'Monday',
       'common.viewAll': 'View All',
       'common.start': 'Start',
+      'common.stop': 'Stop',
       'common.cancel': 'Cancel',
+      'common.close': 'Close',
       'nav.home': 'Home',
       'nav.practice': 'Practice',
       'nav.challenge': 'Challenge',
@@ -30,7 +32,7 @@ class AppLanguage extends ChangeNotifier {
       'onboarding.improveYour': 'Improve Your',
       'onboarding.speaking': 'Speaking',
       'onboarding.subtitle1':
-        'SpeechUp helps you practice speaking and analyze your voice with AI.',
+          'SpeechUp helps you practice speaking and analyze your voice with AI.',
       'onboarding.trackProgress': 'Track Your Progress',
       'onboarding.subtitle2': 'See how your speech improves over time.',
       'onboarding.termsPrefix': 'By continuing, you agree to our',
@@ -54,21 +56,21 @@ class AppLanguage extends ChangeNotifier {
       'home.score': 'SCORE',
       'practice.title': 'Practice',
       'practice.subtitle':
-        'Choose an exercise to strengthen your speech foundation.',
+          'Choose an exercise to strengthen your speech foundation.',
       'practice.readTitle': 'Read a sentence',
       'practice.readBody': 'Today is a beautiful day.',
       'practice.shadowingTitle': 'Shadowing exercise',
       'practice.shadowingBody':
-        'Listen to audio and repeat it perfectly to match the rhythm.',
+          'Listen to audio and repeat it perfectly to match the rhythm.',
       'practice.slowTitle': 'Slow speech training',
       'practice.slowBody':
-        'Practice speaking at a controlled, deliberate pace for clarity.',
+          'Practice speaking at a controlled, deliberate pace for clarity.',
       'practice.easy': 'EASY',
       'practice.medium': 'MEDIUM',
       'practice.hard': 'HARD',
       'practice.weeklyStreak': 'Weekly Streak: 5 Days',
       'practice.weeklyStreakHint':
-        'Keep practicing to reach your clarity goal by Friday!',
+          'Keep practicing to reach your clarity goal by Friday!',
       'practice.recordingSession': 'RECORDING SESSION',
       'practice.listening': 'Listening to you...',
       'practice.metricSpeed': 'SPEECH SPEED',
@@ -78,9 +80,20 @@ class AppLanguage extends ChangeNotifier {
       'practice.none': 'None',
       'practice.high': 'High',
       'practice.stopRecording': 'Stop Recording',
+      'practice.tapToStart': 'Tap the microphone to start listening.',
+      'practice.liveTranscript': 'Live transcript',
+      'practice.analyzing': 'Analyzing your speech...',
+      'practice.permissionDenied':
+          'Microphone permission or speech recognition is unavailable.',
+      'practice.recognizerUnavailable':
+          'This device does not have a speech recognition service. On Android emulators, use a Google Play or Google APIs image and enable the Google app / Speech Services.',
+      'practice.unsupportedPlatform':
+          'Real microphone input currently works on Android and iOS only.',
+      'practice.noSpeechDetected':
+          'No speech was detected. Try again and speak a little closer to the microphone.',
       'progress.title': 'My Journey',
       'progress.monthlyMinutes':
-        'You\'ve spoken for {minutes} minutes this month. Keep it up!',
+          'You\'ve spoken for {minutes} minutes this month. Keep it up!',
       'progress.weekly': 'Weekly',
       'progress.monthly': 'Monthly',
       'progress.milestones': 'Milestones',
@@ -89,11 +102,11 @@ class AppLanguage extends ChangeNotifier {
       'progress.milestoneHour': '1 hour practice',
       'progress.aiRecommendation': 'AI Recommendation',
       'progress.aiRecommendationBody':
-        'Your pronunciation of \'S\' sounds has improved by 20% this week. Focus on vocal resonance next!',
+          'Your pronunciation of \'S\' sounds has improved by 20% this week. Focus on vocal resonance next!',
       'progress.speechSpeedTrend': 'Speech Speed Trend',
       'progress.averageSpeed': 'Average Speed',
       'progress.speedTarget':
-        'Your target is 130–150 words per minute for clear professional delivery.',
+          'Your target is 130–150 words per minute for clear professional delivery.',
       'progress.steadyGrowth': 'Steady Growth',
       'progress.fluencyScore': 'FLUENCY SCORE',
       'progress.pronunciation': 'PRONUNCIATION',
@@ -121,7 +134,9 @@ class AppLanguage extends ChangeNotifier {
       'common.monday': 'Thứ hai',
       'common.viewAll': 'Xem tất cả',
       'common.start': 'Bắt đầu',
+      'common.stop': 'Dừng',
       'common.cancel': 'Hủy',
+      'common.close': 'Đóng',
       'nav.home': 'Trang chủ',
       'nav.practice': 'Luyện tập',
       'nav.challenge': 'Thử thách',
@@ -133,9 +148,10 @@ class AppLanguage extends ChangeNotifier {
       'onboarding.improveYour': 'Cải thiện',
       'onboarding.speaking': 'Kỹ năng nói',
       'onboarding.subtitle1':
-        'SpeechUp giúp bạn luyện nói và phân tích giọng nói bằng AI.',
+          'SpeechUp giúp bạn luyện nói và phân tích giọng nói bằng AI.',
       'onboarding.trackProgress': 'Theo dõi tiến bộ',
-      'onboarding.subtitle2': 'Xem kỹ năng nói của bạn cải thiện theo thời gian.',
+      'onboarding.subtitle2':
+          'Xem kỹ năng nói của bạn cải thiện theo thời gian.',
       'onboarding.termsPrefix': 'Khi tiếp tục, bạn đồng ý với',
       'onboarding.terms': 'Điều khoản dịch vụ',
       'onboarding.and': 'và',
@@ -157,21 +173,21 @@ class AppLanguage extends ChangeNotifier {
       'home.score': 'ĐIỂM',
       'practice.title': 'Luyện tập',
       'practice.subtitle':
-        'Chọn bài tập để cải thiện nền tảng kỹ năng nói của bạn.',
+          'Chọn bài tập để cải thiện nền tảng kỹ năng nói của bạn.',
       'practice.readTitle': 'Đọc một câu',
       'practice.readBody': 'Hôm nay là một ngày đẹp trời.',
       'practice.shadowingTitle': 'Bài tập shadowing',
       'practice.shadowingBody':
-        'Nghe audio và lặp lại thật chính xác để bắt nhịp điệu.',
+          'Nghe audio và lặp lại thật chính xác để bắt nhịp điệu.',
       'practice.slowTitle': 'Luyện nói chậm',
       'practice.slowBody':
-        'Luyện nói với tốc độ có kiểm soát để tăng độ rõ ràng.',
+          'Luyện nói với tốc độ có kiểm soát để tăng độ rõ ràng.',
       'practice.easy': 'DỄ',
       'practice.medium': 'TRUNG BÌNH',
       'practice.hard': 'KHÓ',
       'practice.weeklyStreak': 'Chuỗi tuần: 5 ngày',
       'practice.weeklyStreakHint':
-        'Tiếp tục luyện tập để đạt mục tiêu rõ ràng trước thứ Sáu!',
+          'Tiếp tục luyện tập để đạt mục tiêu rõ ràng trước thứ Sáu!',
       'practice.recordingSession': 'PHIÊN GHI ÂM',
       'practice.listening': 'Đang lắng nghe bạn...',
       'practice.metricSpeed': 'TỐC ĐỘ NÓI',
@@ -181,9 +197,20 @@ class AppLanguage extends ChangeNotifier {
       'practice.none': 'Không',
       'practice.high': 'Cao',
       'practice.stopRecording': 'Dừng ghi âm',
+      'practice.tapToStart': 'Nhấn microphone để bắt đầu lắng nghe.',
+      'practice.liveTranscript': 'Bản ghi trực tiếp',
+      'practice.analyzing': 'Đang phân tích bài nói của bạn...',
+      'practice.permissionDenied':
+          'Không thể dùng microphone hoặc nhận dạng giọng nói trên thiết bị này.',
+      'practice.recognizerUnavailable':
+          'Thiết bị này không có dịch vụ nhận dạng giọng nói. Nếu dùng Android Emulator, hãy dùng image Google Play hoặc Google APIs và bật ứng dụng Google / Speech Services.',
+      'practice.unsupportedPlatform':
+          'Microphone thật hiện chỉ hoạt động trên Android và iOS.',
+      'practice.noSpeechDetected':
+          'Chưa ghi nhận được lời nói. Hãy thử lại và nói gần microphone hơn.',
       'progress.title': 'Hành trình của tôi',
       'progress.monthlyMinutes':
-        'Bạn đã luyện nói {minutes} phút trong tháng này. Cố gắng nhé!',
+          'Bạn đã luyện nói {minutes} phút trong tháng này. Cố gắng nhé!',
       'progress.weekly': 'Tuần',
       'progress.monthly': 'Tháng',
       'progress.milestones': 'Cột mốc',
@@ -192,11 +219,11 @@ class AppLanguage extends ChangeNotifier {
       'progress.milestoneHour': '1 giờ luyện tập',
       'progress.aiRecommendation': 'Gợi ý từ AI',
       'progress.aiRecommendationBody':
-        'Phát âm âm \'S\' của bạn đã cải thiện 20% tuần này. Hãy tập trung thêm vào cộng hưởng giọng nói nhé!',
+          'Phát âm âm \'S\' của bạn đã cải thiện 20% tuần này. Hãy tập trung thêm vào cộng hưởng giọng nói nhé!',
       'progress.speechSpeedTrend': 'Xu hướng tốc độ nói',
       'progress.averageSpeed': 'Tốc độ trung bình',
       'progress.speedTarget':
-        'Mục tiêu là 130–150 từ/phút để truyền đạt chuyên nghiệp và rõ ràng.',
+          'Mục tiêu là 130–150 từ/phút để truyền đạt chuyên nghiệp và rõ ràng.',
       'progress.steadyGrowth': 'Tiến bộ ổn định',
       'progress.fluencyScore': 'ĐIỂM TRÔI CHẢY',
       'progress.pronunciation': 'PHÁT ÂM',
@@ -249,9 +276,8 @@ class AppLanguage extends ChangeNotifier {
 
   String t(String key, {Map<String, String>? params}) {
     final lang = _locale.languageCode;
-    String value = _localizedValues[lang]?[key] ??
-        _localizedValues['en']?[key] ??
-        key;
+    String value =
+        _localizedValues[lang]?[key] ?? _localizedValues['en']?[key] ?? key;
     if (params != null && params.isNotEmpty) {
       params.forEach((paramKey, paramValue) {
         value = value.replaceAll('{$paramKey}', paramValue);
