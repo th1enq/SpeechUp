@@ -6,11 +6,10 @@ import 'package:permission_handler/permission_handler.dart';
 import '../main.dart' show isFirebaseSupported;
 import '../theme/app_colors.dart';
 import '../widgets/shared_widgets.dart';
-import '../services/audio_recording_service.dart';
 import '../services/conversation_ai_service.dart';
 import '../services/firestore_service.dart';
 import '../services/microphone_settings_service.dart';
-import '../services/transcription_api_service.dart';
+import '../services/speech_recognition_service.dart';
 
 class ConversationScreen extends StatefulWidget {
   const ConversationScreen({super.key});
@@ -490,10 +489,9 @@ class _ConversationChat extends StatefulWidget {
 
 class _ConversationChatState extends State<_ConversationChat> {
   final List<_ChatMessage> _messages = [];
-  final AudioRecordingService _audioRecordingService = AudioRecordingService();
+  final SpeechRecognitionService _speechService = SpeechRecognitionService();
   final MicrophoneSettingsService _micSettingsService =
       MicrophoneSettingsService();
-  final TranscriptionApiService _transcriptionService = TranscriptionApiService();
   final ConversationAiService _aiService = ConversationAiService();
   bool _isTyping = false;
   bool _isUserRecording = false;
@@ -571,23 +569,52 @@ class _ConversationChatState extends State<_ConversationChat> {
     }
 
     try {
-      await _audioRecordingService.start(
-        onAmplitude: (level) {
+      final available = await _speechService.initialize(
+        onError: (message) {
           if (!mounted) return;
           setState(() {
-            _soundLevel = level;
-            _recordingHelper = level < -38
-                ? 'Bạn có thể bắt đầu bất cứ lúc nào.'
-                : 'Đang ghi âm câu trả lời của bạn...';
+            _recordingHelper = message.contains('error_speech_timeout')
+                ? 'Mình chưa nghe rõ. Bạn có thể nói lại chậm hơn một chút.'
+                : 'Thiết bị chưa có dịch vụ nhận diện giọng nói.';
           });
         },
       );
+      if (!available) {
+        if (!mounted) return;
+        setState(() {
+          _recordingHelper = 'Thiết bị chưa có dịch vụ nhận diện giọng nói.';
+        });
+        return;
+      }
+
       setState(() {
         _isUserRecording = true;
         _liveTranscript = '';
-        _recordingHelper = 'Đang ghi âm câu trả lời của bạn...';
+        _recordingHelper = 'Mình đang lắng nghe câu trả lời của bạn...';
         _soundLevel = 0;
       });
+
+      await _speechService.listen(
+        localeId: _micSettings.localeId,
+        onSoundLevelChange: (level) {
+          if (!mounted) return;
+          setState(() {
+            _soundLevel = level;
+            _recordingHelper = level < 2
+                ? 'Bạn có thể bắt đầu bất cứ lúc nào.'
+                : 'Mình đang lắng nghe câu trả lời của bạn...';
+          });
+        },
+        onResult: (recognizedWords, isFinal) {
+          if (!mounted) return;
+          setState(() {
+            _liveTranscript = recognizedWords;
+            _recordingHelper = recognizedWords.trim().isEmpty
+                ? 'Mình đang lắng nghe câu trả lời của bạn...'
+                : 'SpeechUp đang ghi lại ý chính của bạn.';
+          });
+        },
+      );
     } catch (_) {
       if (!mounted) return;
       setState(() {
@@ -598,35 +625,18 @@ class _ConversationChatState extends State<_ConversationChat> {
   }
 
   Future<void> _finishUserRecording() async {
-    final audioFile = await _audioRecordingService.stop();
+    await _speechService.stop();
     setState(() {
       _isUserRecording = false;
       _soundLevel = 0;
-      _recordingHelper = 'Đang chuyển giọng nói thành văn bản...';
+      _recordingHelper = 'Đang hoàn tất câu trả lời của bạn...';
     });
 
-    if (audioFile == null) {
+    final text = _liveTranscript.trim();
+    if (text.isEmpty) {
       setState(() {
-        _recordingHelper = 'Không nhận được file ghi âm. Bạn có thể thử lại.';
+        _recordingHelper = 'Mình chưa nghe rõ. Bạn có thể thử lại.';
       });
-      return;
-    }
-
-    String text;
-    try {
-      text = await _transcriptionService.transcribe(
-        audioFile: audioFile,
-        languageCode: _micSettings.localeId.startsWith('vi') ? 'vi' : 'en',
-      );
-    } catch (error) {
-      if (!mounted) return;
-      setState(() {
-        _recordingHelper =
-            'Đã ghi âm, nhưng chưa cấu hình API chuyển giọng nói thành văn bản.';
-      });
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('$error')),
-      );
       return;
     }
 
@@ -653,7 +663,7 @@ class _ConversationChatState extends State<_ConversationChat> {
 
   @override
   void dispose() {
-    _audioRecordingService.dispose();
+    _speechService.cancel();
     // Save conversation before disposing
     if (_messages.isNotEmpty && widget.onSaveConversation != null) {
       final messageMaps = _messages.map((m) => {

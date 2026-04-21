@@ -6,10 +6,9 @@ import '../main.dart' show isFirebaseSupported;
 import '../l10n/app_language.dart';
 import '../theme/app_colors.dart';
 import '../widgets/shared_widgets.dart';
-import '../services/audio_recording_service.dart';
 import '../services/firestore_service.dart';
 import '../services/microphone_settings_service.dart';
-import '../services/transcription_api_service.dart';
+import '../services/speech_recognition_service.dart';
 import '../models/practice_session.dart';
 import 'analysis_screen.dart';
 
@@ -22,8 +21,7 @@ class PracticeScreen extends StatefulWidget {
 
 class _PracticeScreenState extends State<PracticeScreen> {
   TextStyle get _display => GoogleFonts.plusJakartaSans();
-  final AudioRecordingService _audioRecordingService = AudioRecordingService();
-  final TranscriptionApiService _transcriptionService = TranscriptionApiService();
+  final SpeechRecognitionService _speechService = SpeechRecognitionService();
   final MicrophoneSettingsService _micSettingsService =
       MicrophoneSettingsService();
   final FirestoreService _firestoreService = FirestoreService();
@@ -44,7 +42,7 @@ class _PracticeScreenState extends State<PracticeScreen> {
 
   @override
   void dispose() {
-    _audioRecordingService.dispose();
+    _speechService.cancel();
     super.dispose();
   }
 
@@ -261,35 +259,67 @@ class _PracticeScreenState extends State<PracticeScreen> {
     }
 
     try {
-      await _audioRecordingService.start(
-        onAmplitude: (level) {
+      final available = await _speechService.initialize(
+        onError: (message) {
           if (!mounted) return;
           setState(() {
-            _soundLevel = level;
-            _helperMessage = level < -38
-                ? 'Pauses are welcome here'
-                : 'Recording your voice clearly.';
+            _helperMessage = message.contains('error_speech_timeout')
+                ? 'I did not hear speech yet. You can keep trying.'
+                : 'Speech recognition is not available on this device.';
           });
         },
       );
+      if (!available) {
+        if (!mounted) return;
+        setState(() {
+          _isRecording = false;
+          _helperMessage =
+              'Speech recognition is not available on this Android image.';
+        });
+        return;
+      }
+
       setState(() {
         _isRecording = true;
         _isProcessing = false;
         _transcript = '';
-        _helperMessage = 'Recording audio - speak naturally.';
+        _helperMessage = 'Speak naturally - I am listening';
         _soundLevel = 0;
         _recordingStartedAt = DateTime.now();
       });
+
+      await _speechService.listen(
+        localeId: _micSettings.localeId,
+        onSoundLevelChange: (level) {
+          if (!mounted) return;
+          setState(() {
+            _soundLevel = level;
+            _helperMessage =
+                level < 2 ? 'Pauses are welcome here' : 'Speak naturally - I am listening';
+          });
+        },
+        onResult: (recognizedWords, isFinal) {
+          if (!mounted) return;
+          setState(() {
+            _transcript = recognizedWords;
+            _helperMessage = recognizedWords.trim().isEmpty
+                ? 'Speak naturally - I am listening'
+                : 'Your words are appearing in real time.';
+          });
+        },
+      );
     } catch (error) {
       if (!mounted) return;
       setState(() {
         _isRecording = false;
-        _helperMessage = 'Could not open microphone. Check emulator audio settings.';
+        _helperMessage =
+            'Could not start speech recognition. Check microphone and recognition service.';
       });
     }
   }
 
   Future<void> _finishRecording() async {
+    await _speechService.stop();
     setState(() {
       _isRecording = false;
       _isProcessing = true;
@@ -297,40 +327,17 @@ class _PracticeScreenState extends State<PracticeScreen> {
       _helperMessage = 'Preparing your reflection...';
     });
 
-    final audioFile = await _audioRecordingService.stop();
-
     final startedAt = _recordingStartedAt ?? DateTime.now();
     final duration =
         DateTime.now().difference(startedAt).inSeconds.clamp(1, 3600).toInt();
-    var transcript = _transcript.trim();
+    final transcript = _transcript.trim();
 
-    if (audioFile == null) {
+    if (transcript.isEmpty) {
       if (!mounted) return;
       setState(() {
         _isProcessing = false;
-        _helperMessage = 'No audio file was captured. Please try again.';
+        _helperMessage = 'I could not hear clear speech yet. Please try again.';
       });
-      return;
-    }
-
-    try {
-      transcript = await _transcriptionService.transcribe(
-        audioFile: audioFile,
-        languageCode: _micSettings.localeId.startsWith('vi') ? 'vi' : 'en',
-      );
-      if (mounted) {
-        setState(() => _transcript = transcript);
-      }
-    } catch (error) {
-      if (!mounted) return;
-      setState(() {
-        _isProcessing = false;
-        _helperMessage =
-            'Audio recorded, but transcription API is not configured yet.';
-      });
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('$error')),
-      );
       return;
     }
 
