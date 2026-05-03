@@ -1,8 +1,13 @@
+import 'dart:math' as math;
+
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:provider/provider.dart';
+
 import '../l10n/app_language.dart';
 import '../theme/app_colors.dart';
+import '../theme/theme_notifier.dart';
 
 class OnboardingScreen extends StatefulWidget {
   final VoidCallback onComplete;
@@ -20,16 +25,19 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   static const int _pageCount = 2;
 
   late final PageController _pageController;
+  late final TapGestureRecognizer _logInRecognizer;
   int _currentPage = 0;
 
   @override
   void initState() {
     super.initState();
     _pageController = PageController();
+    _logInRecognizer = TapGestureRecognizer()..onTap = _skipOnboarding;
   }
 
   @override
   void dispose() {
+    _logInRecognizer.dispose();
     _pageController.dispose();
     super.dispose();
   }
@@ -49,41 +57,29 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
 
   void _onComplete() => widget.onComplete();
 
+  Color _welcomeBackground(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return isDark ? const Color(0xFF121212) : Colors.white;
+  }
+
   @override
   Widget build(BuildContext context) {
     final t = appLanguage.t;
+    final c = context.colors;
+    final base = GoogleFonts.plusJakartaSans();
 
     return Scaffold(
-      backgroundColor: AppColors.onboardingBackground,
+      backgroundColor: _welcomeBackground(context),
       body: SafeArea(
         child: Column(
           children: [
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+              padding: const EdgeInsets.fromLTRB(20, 4, 8, 8),
               child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   const _SpeechUpLogo(),
-                  if (_currentPage == 0)
-                    TextButton(
-                      onPressed: _skipOnboarding,
-                      style: TextButton.styleFrom(
-                        foregroundColor: AppColors.onboardingTextMuted,
-                        padding: const EdgeInsets.symmetric(horizontal: 8),
-                        minimumSize: Size.zero,
-                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                      ),
-                      child: Text(
-                        t('onboarding.skip'),
-                        style: GoogleFonts.plusJakartaSans(
-                          fontSize: 15,
-                          fontWeight: FontWeight.w600,
-                          color: AppColors.onboardingTextMuted,
-                        ),
-                      ),
-                    )
-                  else
-                    const SizedBox(width: 56),
+                  const Spacer(),
+                  const _OnboardingThemeToggle(),
                 ],
               ),
             ),
@@ -92,51 +88,74 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                 controller: _pageController,
                 onPageChanged: (index) => setState(() => _currentPage = index),
                 children: [
-                  _OnboardingPage(
-                    illustration: const _SoundWaveIllustration(),
-                    titleWidget: Text.rich(
-                      TextSpan(
-                        style: GoogleFonts.plusJakartaSans(
-                          fontSize: 28,
-                          fontWeight: FontWeight.w800,
-                          height: 1.2,
-                          color: AppColors.onboardingNavy,
-                        ),
-                        children: [
-                          TextSpan(text: '${t('onboarding.improveYour')} '),
-                          TextSpan(
-                            text: t('onboarding.speaking'),
-                            style: const TextStyle(color: AppColors.onboardingBlue),
+                  SingleChildScrollView(
+                    physics: const BouncingScrollPhysics(),
+                    padding: const EdgeInsets.symmetric(horizontal: 24),
+                    child: Column(
+                      children: [
+                        const SizedBox(height: 4),
+                        const _WelcomeHero(),
+                        const SizedBox(height: 28),
+                        Text(
+                          t('onboarding.welcomeHeadline'),
+                          textAlign: TextAlign.center,
+                          style: GoogleFonts.plusJakartaSans(
+                            fontSize: 26,
+                            fontWeight: FontWeight.w800,
+                            height: 1.25,
+                            letterSpacing: -0.3,
+                            color: c.textHeading,
                           ),
-                        ],
-                      ),
-                      textAlign: TextAlign.center,
+                        ),
+                        const SizedBox(height: 24),
+                      ],
                     ),
-                    subtitle: t('onboarding.subtitle1'),
-                    bottom: null,
                   ),
-                  _OnboardingPage(
-                    illustration: const _TrackProgressCardIllustration(),
-                    titleWidget: Text(
-                      t('onboarding.trackProgress'),
-                      style: GoogleFonts.plusJakartaSans(
-                        fontSize: 28,
-                        fontWeight: FontWeight.w800,
-                        height: 1.2,
-                        color: AppColors.onboardingNavy,
-                      ),
-                      textAlign: TextAlign.center,
-                    ),
+                  _OnboardingSecondPage(
+                    title: t('onboarding.trackProgress'),
                     subtitle: t('onboarding.subtitle2'),
-                    bottom: const _TermsFooter(),
                   ),
                 ],
               ),
             ),
             Padding(
-              padding: const EdgeInsets.fromLTRB(20, 8, 20, 28),
+              padding: const EdgeInsets.fromLTRB(24, 8, 24, 28),
               child: Column(
                 children: [
+                  if (_currentPage == 0) ...[
+                    _SolidPrimaryCta(
+                      label: t('onboarding.startLearning'),
+                      showArrow: false,
+                      onPressed: _nextPage,
+                    ),
+                    const SizedBox(height: 18),
+                    Text.rich(
+                      TextSpan(
+                        style: base.copyWith(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w500,
+                          color: c.textMuted,
+                          height: 1.4,
+                        ),
+                        children: [
+                          TextSpan(text: '${t('onboarding.alreadyHaveAccount')} '),
+                          TextSpan(
+                            text: t('onboarding.logIn'),
+                            style: base.copyWith(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w700,
+                              color: AppColors.onboardingBlue,
+                              decoration: TextDecoration.underline,
+                              decorationColor: AppColors.onboardingBlue,
+                            ),
+                            recognizer: _logInRecognizer,
+                          ),
+                        ],
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 20),
+                  ],
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: List.generate(_pageCount, (index) {
@@ -149,21 +168,21 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                         width: active ? 28 : 8,
                         decoration: BoxDecoration(
                           color: active
-                              ? AppColors.onboardingNavy
-                              : AppColors.onboardingDotInactive,
+                              ? AppColors.onboardingBlue
+                              : c.onboardingDotInactive,
                           borderRadius: BorderRadius.circular(4),
                         ),
                       );
                     }),
                   ),
-                  const SizedBox(height: 22),
-                  _GradientCtaButton(
-                    label: _currentPage == 0
-                        ? t('onboarding.next')
-                        : t('onboarding.getStarted'),
-                    showArrow: _currentPage == 0,
-                    onPressed: _nextPage,
-                  ),
+                  if (_currentPage == 1) ...[
+                    const SizedBox(height: 22),
+                    _SolidPrimaryCta(
+                      label: t('onboarding.getStarted'),
+                      showArrow: false,
+                      onPressed: _nextPage,
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -174,55 +193,94 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   }
 }
 
+class _OnboardingThemeToggle extends StatelessWidget {
+  const _OnboardingThemeToggle();
+
+  @override
+  Widget build(BuildContext context) {
+    final notifier = context.watch<ThemeNotifier>();
+    final isDark = notifier.isDark;
+    final c = context.colors;
+
+    return IconButton(
+      onPressed: () => notifier.toggle(),
+      tooltip: isDark ? 'Light mode' : 'Dark mode',
+      style: IconButton.styleFrom(
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      ),
+      icon: isDark
+          ? Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                color: const Color(0xFF2C2C2E),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              alignment: Alignment.center,
+              child: Icon(
+                Icons.wb_sunny_rounded,
+                size: 22,
+                color: Colors.amber.shade300,
+              ),
+            )
+          : Icon(
+              Icons.dark_mode_outlined,
+              color: c.textMuted,
+              size: 26,
+            ),
+    );
+  }
+}
+
 class _SpeechUpLogo extends StatelessWidget {
   const _SpeechUpLogo();
 
   @override
   Widget build(BuildContext context) {
+    final c = context.colors;
+
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
         Container(
-          width: 40,
-          height: 40,
-          decoration: const BoxDecoration(
-            shape: BoxShape.circle,
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [
-                AppColors.onboardingBlueDeep,
-                AppColors.onboardingBlue,
-              ],
-            ),
+          width: 44,
+          height: 44,
+          decoration: BoxDecoration(
+            color: AppColors.onboardingBlue,
+            borderRadius: BorderRadius.circular(12),
           ),
           child: Stack(
-            alignment: Alignment.center,
+            clipBehavior: Clip.none,
             children: [
-              Icon(
-                Icons.graphic_eq_rounded,
-                color: Colors.white.withValues(alpha: 0.35),
-                size: 26,
+              Positioned(
+                left: 6,
+                top: 11,
+                child: Icon(
+                  Icons.chat_bubble_rounded,
+                  color: Colors.white.withValues(alpha: 0.82),
+                  size: 17,
+                ),
               ),
-              const Icon(
-                Icons.mic_rounded,
-                color: Colors.white,
-                size: 20,
+              Positioned(
+                right: 6,
+                bottom: 9,
+                child: const Icon(
+                  Icons.chat_bubble_rounded,
+                  color: Colors.white,
+                  size: 19,
+                ),
               ),
             ],
           ),
         ),
-        const SizedBox(width: 10),
-        Text.rich(
-          TextSpan(
-            style: GoogleFonts.plusJakartaSans(
-              fontSize: 18,
-              fontWeight: FontWeight.w800,
-            ),
-            children: const [
-              TextSpan(text: 'Speech', style: TextStyle(color: AppColors.onboardingNavy)),
-              TextSpan(text: 'Up', style: TextStyle(color: AppColors.onboardingBlue)),
-            ],
+        const SizedBox(width: 12),
+        Text(
+          'SpeechUp',
+          style: GoogleFonts.plusJakartaSans(
+            fontSize: 20,
+            fontWeight: FontWeight.w800,
+            letterSpacing: -0.4,
+            color: c.textHeading,
           ),
         ),
       ],
@@ -230,45 +288,183 @@ class _SpeechUpLogo extends StatelessWidget {
   }
 }
 
-class _OnboardingPage extends StatelessWidget {
-  final Widget illustration;
-  final Widget titleWidget;
-  final String subtitle;
-  final Widget? bottom;
+class _WelcomeHero extends StatelessWidget {
+  const _WelcomeHero();
 
-  const _OnboardingPage({
-    required this.illustration,
-    required this.titleWidget,
-    required this.subtitle,
-    this.bottom,
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final blobLight = const Color(0xFFE3EFFF);
+    final blobDark = const Color(0xFF152238);
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final maxW = constraints.maxWidth;
+        final h = math.min(maxW * 0.92, 276.0);
+        return SizedBox(
+          height: h,
+          width: maxW,
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              CustomPaint(
+                size: Size(maxW, h),
+                painter: _OrganicBlobPainter(
+                  color: isDark ? blobDark : blobLight,
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                child: Image.asset(
+                  'assets/images/onboarding_welcome_hero.png',
+                  fit: BoxFit.contain,
+                  errorBuilder: (context, error, stackTrace) =>
+                      _HeroFallback(isDark: isDark),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _OrganicBlobPainter extends CustomPainter {
+  final Color color;
+
+  _OrganicBlobPainter({required this.color});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()..color = color;
+    final path = Path();
+    final w = size.width;
+    final h = size.height;
+    path.moveTo(w * 0.12, h * 0.58);
+    path.quadraticBezierTo(w * 0.02, h * 0.22, w * 0.42, h * 0.11);
+    path.quadraticBezierTo(w * 0.78, h * 0.04, w * 0.94, h * 0.38);
+    path.quadraticBezierTo(w * 1.04, h * 0.72, w * 0.62, h * 0.94);
+    path.quadraticBezierTo(w * 0.32, h * 1.02, w * 0.1, h * 0.78);
+    path.close();
+    canvas.drawPath(path, paint);
+  }
+
+  @override
+  bool shouldRepaint(covariant _OrganicBlobPainter oldDelegate) =>
+      oldDelegate.color != color;
+}
+
+class _HeroFallback extends StatelessWidget {
+  final bool isDark;
+
+  const _HeroFallback({required this.isDark});
+
+  @override
+  Widget build(BuildContext context) {
+    return Icon(
+      Icons.record_voice_over_rounded,
+      size: 120,
+      color: AppColors.onboardingBlue.withValues(alpha: isDark ? 0.45 : 0.35),
+    );
+  }
+}
+
+class _SolidPrimaryCta extends StatelessWidget {
+  final String label;
+  final bool showArrow;
+  final VoidCallback onPressed;
+
+  const _SolidPrimaryCta({
+    required this.label,
+    required this.showArrow,
+    required this.onPressed,
   });
 
   @override
   Widget build(BuildContext context) {
+    final base = GoogleFonts.plusJakartaSans();
+
+    return SizedBox(
+      width: double.infinity,
+      height: 54,
+      child: FilledButton(
+        onPressed: onPressed,
+        style: FilledButton.styleFrom(
+          backgroundColor: AppColors.onboardingBlue,
+          foregroundColor: Colors.white,
+          elevation: 0,
+          shadowColor: Colors.transparent,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+          ),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text(
+              label,
+              style: base.copyWith(
+                fontSize: 16,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            if (showArrow) ...[
+              const SizedBox(width: 8),
+              const Icon(Icons.arrow_forward_rounded, size: 22),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _OnboardingSecondPage extends StatelessWidget {
+  final String title;
+  final String subtitle;
+
+  const _OnboardingSecondPage({
+    required this.title,
+    required this.subtitle,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+
     return SingleChildScrollView(
       physics: const BouncingScrollPhysics(),
-      padding: const EdgeInsets.symmetric(horizontal: 20),
+      padding: const EdgeInsets.symmetric(horizontal: 24),
       child: Column(
         children: [
           const SizedBox(height: 8),
-          illustration,
-          const SizedBox(height: 40),
-          titleWidget,
+          const _TrackProgressCardIllustration(),
+          const SizedBox(height: 36),
+          Text(
+            title,
+            style: GoogleFonts.plusJakartaSans(
+              fontSize: 26,
+              fontWeight: FontWeight.w800,
+              height: 1.25,
+              letterSpacing: -0.3,
+              color: c.textHeading,
+            ),
+            textAlign: TextAlign.center,
+          ),
           const SizedBox(height: 14),
           Text(
             subtitle,
             style: GoogleFonts.plusJakartaSans(
               fontSize: 15,
               fontWeight: FontWeight.w400,
-              color: AppColors.onboardingTextMuted,
+              color: c.textMuted,
               height: 1.55,
             ),
             textAlign: TextAlign.center,
           ),
-          if (bottom != null) ...[
-            const SizedBox(height: 28),
-            bottom!,
-          ],
+          const SizedBox(height: 28),
+          const _TermsFooter(),
           const SizedBox(height: 24),
         ],
       ),
@@ -303,18 +499,19 @@ class _TermsFooterState extends State<_TermsFooter> {
 
   @override
   Widget build(BuildContext context) {
+    final c = context.colors;
     final base = GoogleFonts.plusJakartaSans(
       fontSize: 12,
       fontWeight: FontWeight.w400,
-      color: AppColors.onboardingTextMuted,
+      color: c.textMuted,
       height: 1.5,
     );
     final link = GoogleFonts.plusJakartaSans(
       fontSize: 12,
       fontWeight: FontWeight.w600,
-      color: AppColors.onboardingTextMuted,
+      color: c.textMuted,
       decoration: TextDecoration.underline,
-      decorationColor: AppColors.onboardingTextMuted,
+      decorationColor: c.textMuted,
       height: 1.5,
     );
 
@@ -342,224 +539,19 @@ class _TermsFooterState extends State<_TermsFooter> {
   }
 }
 
-class _GradientCtaButton extends StatelessWidget {
-  final String label;
-  final bool showArrow;
-  final VoidCallback onPressed;
-
-  const _GradientCtaButton({
-    required this.label,
-    required this.showArrow,
-    required this.onPressed,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onPressed,
-        borderRadius: BorderRadius.circular(16),
-        child: Ink(
-          width: double.infinity,
-          height: 54,
-          decoration: BoxDecoration(
-            gradient: AppColors.onboardingCtaGradient,
-            borderRadius: BorderRadius.circular(16),
-            boxShadow: [
-              BoxShadow(
-                color: AppColors.onboardingBlue.withValues(alpha: 0.28),
-                blurRadius: 18,
-                offset: const Offset(0, 8),
-              ),
-            ],
-          ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Text(
-                label,
-                style: GoogleFonts.plusJakartaSans(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w700,
-                  color: Colors.white,
-                ),
-              ),
-              if (showArrow) ...[
-                const SizedBox(width: 10),
-                const Icon(Icons.arrow_forward_rounded, color: Colors.white, size: 22),
-              ],
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _SoundWaveIllustration extends StatelessWidget {
-  const _SoundWaveIllustration();
-
-  @override
-  Widget build(BuildContext context) {
-    // Symmetrical peak + symmetric blues: pale → medium → primary (Figma)
-    final bars = [
-      (52.0, AppColors.onboardingWaveOuter),
-      (76.0, AppColors.onboardingWaveMid),
-      (104.0, AppColors.onboardingBlue),
-      (76.0, AppColors.onboardingWaveMid),
-      (52.0, AppColors.onboardingWaveOuter),
-    ];
-
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        LayoutBuilder(
-          builder: (context, constraints) {
-            final maxW = constraints.maxWidth;
-            return SizedBox(
-              width: maxW,
-              height: 212,
-              child: Stack(
-                clipBehavior: Clip.none,
-                alignment: Alignment.center,
-                children: [
-                  Positioned.fill(
-                    child: DecoratedBox(
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(32),
-                        color: AppColors.onboardingBlue.withValues(alpha: 0.09),
-                      ),
-                    ),
-                  ),
-                  Positioned(
-                    right: 6,
-                    top: 32,
-                    child: Container(
-                      width: 52,
-                      height: 52,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: AppColors.onboardingAccentSoft.withValues(alpha: 0.42),
-                      ),
-                    ),
-                  ),
-                  Center(
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.end,
-                      children: [
-                        for (var i = 0; i < bars.length; i++) ...[
-                          if (i > 0) const SizedBox(width: 12),
-                          _WaveBar(height: bars[i].$1, color: bars[i].$2),
-                        ],
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            );
-          },
-        ),
-        const SizedBox(height: 20),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 4),
-          child: Container(
-            width: double.infinity,
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(22),
-              boxShadow: [
-                BoxShadow(
-                  color: AppColors.onboardingNavy.withValues(alpha: 0.09),
-                  blurRadius: 24,
-                  offset: const Offset(0, 10),
-                ),
-              ],
-            ),
-            child: Row(
-              children: [
-                Container(
-                  width: 40,
-                  height: 40,
-                  decoration: BoxDecoration(
-                    color: AppColors.onboardingBlue.withValues(alpha: 0.12),
-                    shape: BoxShape.circle,
-                  ),
-                  child: const Icon(
-                    Icons.mic_rounded,
-                    color: AppColors.onboardingBlue,
-                    size: 22,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        appLanguage.t('onboarding.liveAnalysis'),
-                        style: GoogleFonts.plusJakartaSans(
-                          fontSize: 10,
-                          fontWeight: FontWeight.w700,
-                          letterSpacing: 1.1,
-                          color: AppColors.onboardingTextMuted,
-                        ),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        appLanguage.t('onboarding.clarityAchieved'),
-                        style: GoogleFonts.plusJakartaSans(
-                          fontSize: 15,
-                          fontWeight: FontWeight.w700,
-                          color: AppColors.onboardingNavy,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _WaveBar extends StatelessWidget {
-  final double height;
-  final Color color;
-
-  const _WaveBar({required this.height, required this.color});
-
-  @override
-  Widget build(BuildContext context) {
-    const barWidth = 13.0;
-    return Container(
-      width: barWidth,
-      height: height,
-      decoration: BoxDecoration(
-        color: color,
-        borderRadius: BorderRadius.circular(barWidth / 2),
-      ),
-    );
-  }
-}
-
 class _TrackProgressCardIllustration extends StatelessWidget {
   const _TrackProgressCardIllustration();
 
   @override
   Widget build(BuildContext context) {
+    final c = context.colors;
     const w = 18.0;
     final heights = [44.0, 62.0, 84.0, 108.0];
     final colors = [
       const Color(0xFFC8DCF9),
       const Color(0xFF93B8F5),
       const Color(0xFF4E84E8),
-      AppColors.onboardingNavy,
+      AppColors.onboardingBlue,
     ];
 
     return SizedBox(
@@ -569,11 +561,12 @@ class _TrackProgressCardIllustration extends StatelessWidget {
           width: 260,
           padding: const EdgeInsets.fromLTRB(24, 28, 24, 32),
           decoration: BoxDecoration(
-            color: Colors.white,
+            color: c.cardBg,
             borderRadius: BorderRadius.circular(24),
+            border: Border.all(color: c.borderColor.withValues(alpha: 0.6)),
             boxShadow: [
               BoxShadow(
-                color: AppColors.onboardingNavy.withValues(alpha: 0.08),
+                color: c.shadowColor,
                 blurRadius: 28,
                 offset: const Offset(0, 14),
               ),

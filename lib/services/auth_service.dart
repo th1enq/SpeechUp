@@ -1,7 +1,11 @@
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:google_sign_in/google_sign_in.dart';
 
 class AuthService {
   final FirebaseAuth _auth = FirebaseAuth.instance;
+  final GoogleSignIn _googleSignIn = GoogleSignIn(
+    scopes: const ['email', 'profile'],
+  );
 
   // Current user
   User? get currentUser => _auth.currentUser;
@@ -58,6 +62,36 @@ class AuthService {
     }
   }
 
+  /// Returns sign-in providers for this email (empty if unused). Used to detect existing accounts.
+  ///
+  /// Note: Firebase marks this API deprecated for enumeration-protection on some projects;
+  /// we keep it for clearer signup/login UX when available.
+  Future<List<String>> fetchSignInMethodsForEmail(String email) async {
+    try {
+      // ignore: deprecated_member_use
+      return await _auth.fetchSignInMethodsForEmail(email.trim());
+    } on FirebaseAuthException catch (e) {
+      throw _mapAuthError(e.code);
+    }
+  }
+
+  /// Returns null if the user closed the Google picker without signing in.
+  Future<UserCredential?> signInWithGoogle() async {
+    try {
+      final googleUser = await _googleSignIn.signIn();
+      if (googleUser == null) return null;
+
+      final googleAuth = await googleUser.authentication;
+      final credential = GoogleAuthProvider.credential(
+        accessToken: googleAuth.accessToken,
+        idToken: googleAuth.idToken,
+      );
+      return await _auth.signInWithCredential(credential);
+    } on FirebaseAuthException catch (e) {
+      throw _mapAuthError(e.code);
+    }
+  }
+
   // Map Firebase error codes to user-friendly messages
   String _mapAuthError(String code) {
     switch (code) {
@@ -73,6 +107,8 @@ class AuthService {
         return 'Email không hợp lệ.';
       case 'too-many-requests':
         return 'Quá nhiều yêu cầu. Vui lòng thử lại sau.';
+      case 'account-exists-with-different-credential':
+        return 'Email này đã được dùng với phương thức đăng nhập khác.';
       default:
         return 'Đã xảy ra lỗi. Vui lòng thử lại.';
     }

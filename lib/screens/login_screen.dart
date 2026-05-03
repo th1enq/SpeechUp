@@ -1,9 +1,27 @@
+import 'dart:async';
+
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import '../theme/app_colors.dart';
+import 'package:provider/provider.dart';
+
+import '../l10n/app_language.dart';
+import '../models/user_profile.dart';
 import '../services/auth_service.dart';
 import '../services/firestore_service.dart';
-import '../models/user_profile.dart';
+import '../theme/app_colors.dart';
+import '../theme/theme_notifier.dart';
+
+/// Keys stored in [UserProfile.practiceGoals] for onboarding.
+const _purposeOptionKeys = [
+  'clarity',
+  'fluency',
+  'confidence',
+  'professional',
+  'habit',
+];
 
 class LoginScreen extends StatefulWidget {
   final VoidCallback onLoginSuccess;
@@ -18,26 +36,218 @@ class _LoginScreenState extends State<LoginScreen> {
   final AuthService _authService = AuthService();
   final FirestoreService _firestoreService = FirestoreService();
 
-  final _formKey = GlobalKey<FormState>();
+  final _credentialFormKey = GlobalKey<FormState>();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
-  final _nameController = TextEditingController();
+  final _usernameController = TextEditingController();
 
+  /// Login: 0 = email, 1 = password. Sign-up: 0–4 (email → password → username → language → purpose).
+  int _step = 0;
   bool _isLogin = true;
   bool _isLoading = false;
+  bool _googleLoading = false;
   bool _obscurePassword = true;
   String? _errorMessage;
+
+  String? _selectedLanguageDisplay;
+  final Set<String> _selectedPurposeKeys = {};
+
+  static final RegExp _emailShapeRegex =
+      RegExp(r'^[^\s@]+@[^\s@]+\.[^\s@]{2,}$');
+
+  bool get _firebaseReady {
+    try {
+      return Firebase.apps.isNotEmpty;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Color _pageBg(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return isDark ? const Color(0xFF121212) : Colors.white;
+  }
+
+  Color _fieldFill(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return isDark ? const Color(0xFF1C1C1E) : const Color(0xFFF2F2F7);
+  }
 
   @override
   void dispose() {
     _emailController.dispose();
     _passwordController.dispose();
-    _nameController.dispose();
+    _usernameController.dispose();
     super.dispose();
   }
 
-  Future<void> _submit() async {
-    if (!_formKey.currentState!.validate()) return;
+  bool _looksLikeEmail(String value) => _emailShapeRegex.hasMatch(value.trim());
+
+  /// When [methods] is empty, Firebase may be hiding providers (enumeration protection).
+  /// We only block when the API returns a non-empty list we can interpret.
+  String? _emailGateMessageAfterLookup(List<String> methods) {
+    if (methods.isEmpty) return null;
+
+    if (_isLogin) {
+      if (!methods.contains('password')) {
+        return appLanguage.t('login.useGoogleInstead');
+      }
+      return null;
+    }
+
+    return appLanguage.t('signup.emailAlreadyRegistered');
+  }
+
+  void _goBack() {
+    if (_step > 0) {
+      setState(() {
+        _step--;
+        _errorMessage = null;
+      });
+      return;
+    }
+    Navigator.maybePop(context);
+  }
+
+  bool _validateEmailStep() {
+    final email = _emailController.text.trim();
+    final t = appLanguage.t;
+    if (email.isEmpty) {
+      setState(() => _errorMessage = t('login.valEmail'));
+      return false;
+    }
+    if (!_looksLikeEmail(email)) {
+      setState(() => _errorMessage = t('login.valEmailInvalid'));
+      return false;
+    }
+    setState(() => _errorMessage = null);
+    return true;
+  }
+
+  Future<void> _onContinueEmail() async {
+    FocusScope.of(context).unfocus();
+    if (!_validateEmailStep()) return;
+
+    final emailForLookup = _emailController.text.trim().toLowerCase();
+
+    if (_firebaseReady) {
+      setState(() {
+        _isLoading = true;
+        _errorMessage = null;
+      });
+      try {
+        final methods =
+            await _authService.fetchSignInMethodsForEmail(emailForLookup);
+        if (!mounted) return;
+
+        final blocked = _emailGateMessageAfterLookup(methods);
+        if (blocked != null) {
+          setState(() {
+            _errorMessage = blocked;
+            _isLoading = false;
+          });
+          return;
+        }
+      } catch (e) {
+        if (!mounted) return;
+        setState(() {
+          _errorMessage = e.toString();
+          _isLoading = false;
+        });
+        return;
+      }
+      if (!mounted) return;
+      setState(() => _isLoading = false);
+    }
+
+    setState(() => _step = 1);
+  }
+
+  bool _isStrongPassword(String s) {
+    if (s.length < 8) return false;
+    if (!RegExp(r'[A-Z]').hasMatch(s)) return false;
+    if (!RegExp(r'[0-9]').hasMatch(s)) return false;
+    return true;
+  }
+
+  void _signUpContinueFromPassword() {
+    FocusScope.of(context).unfocus();
+    final t = appLanguage.t;
+    final p = _passwordController.text;
+    if (!_isStrongPassword(p)) {
+      setState(() => _errorMessage = t('signup.valPasswordStrong'));
+      return;
+    }
+    setState(() {
+      _errorMessage = null;
+      _step = 2;
+    });
+  }
+
+  bool _validateUsername() {
+    final t = appLanguage.t;
+    final u = _usernameController.text.trim();
+    if (u.length < 3 || u.length > 20) {
+      setState(() => _errorMessage = t('signup.valUsername'));
+      return false;
+    }
+    if (!RegExp(r'^[a-zA-Z0-9_-]+$').hasMatch(u)) {
+      setState(() => _errorMessage = t('signup.valUsername'));
+      return false;
+    }
+    setState(() => _errorMessage = null);
+    return true;
+  }
+
+  void _signUpContinueFromUsername() {
+    FocusScope.of(context).unfocus();
+    if (!_validateUsername()) return;
+    setState(() {
+      _step = 3;
+      _selectedLanguageDisplay ??= 'English (US)';
+    });
+  }
+
+  void _signUpContinueFromLanguage() {
+    final t = appLanguage.t;
+    if (_selectedLanguageDisplay == null) {
+      setState(() => _errorMessage = t('signup.valPickLanguage'));
+      return;
+    }
+    setState(() {
+      _errorMessage = null;
+      _step = 4;
+    });
+  }
+
+  void _signUpContinueFromPurpose() {
+    final t = appLanguage.t;
+    if (_selectedPurposeKeys.isEmpty) {
+      setState(() => _errorMessage = t('signup.valPickPurposes'));
+      return;
+    }
+    _completeSignUp();
+  }
+
+  Future<void> _ensureUserProfile(User user) async {
+    final existing = await _firestoreService.getUserProfile(user.uid);
+    if (existing != null) return;
+    final name = user.displayName?.trim();
+    final mail = user.email ?? '';
+    await _firestoreService.createUserProfile(
+      UserProfile(
+        uid: user.uid,
+        displayName: (name != null && name.isNotEmpty)
+            ? name
+            : (mail.isNotEmpty ? mail.split('@').first : 'User'),
+        email: mail,
+        createdAt: DateTime.now(),
+      ),
+    );
+  }
+
+  Future<void> _submitSignIn() async {
+    if (!_credentialFormKey.currentState!.validate()) return;
 
     setState(() {
       _isLoading = true;
@@ -45,530 +255,1294 @@ class _LoginScreenState extends State<LoginScreen> {
     });
 
     try {
-      if (_isLogin) {
-        await _authService.signInWithEmail(
-          _emailController.text.trim(),
-          _passwordController.text,
-        );
-      } else {
-        final credential = await _authService.registerWithEmail(
-          _emailController.text.trim(),
-          _passwordController.text,
-          _nameController.text.trim(),
-        );
+      await _authService.signInWithEmail(
+        _emailController.text.trim(),
+        _passwordController.text,
+      );
+      widget.onLoginSuccess();
+    } catch (e) {
+      setState(() => _errorMessage = e.toString());
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
 
-        // Create user profile in Firestore
-        if (credential.user != null) {
-          final profile = UserProfile(
+  Future<void> _completeSignUp() async {
+    FocusScope.of(context).unfocus();
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+
+    try {
+      final credential = await _authService.registerWithEmail(
+        _emailController.text.trim(),
+        _passwordController.text,
+        _usernameController.text.trim(),
+      );
+      if (credential.user != null) {
+        await _firestoreService.createUserProfile(
+          UserProfile(
             uid: credential.user!.uid,
-            displayName: _nameController.text.trim(),
+            displayName: _usernameController.text.trim(),
             email: _emailController.text.trim(),
             createdAt: DateTime.now(),
-          );
-          await _firestoreService.createUserProfile(profile);
-        }
+            language: _selectedLanguageDisplay ?? 'English (US)',
+            practiceGoals: List<String>.from(_selectedPurposeKeys)..sort(),
+          ),
+        );
+      }
+      if (_selectedLanguageDisplay != null) {
+        appLanguage.setByDisplayName(_selectedLanguageDisplay!);
       }
       widget.onLoginSuccess();
     } catch (e) {
-      setState(() {
-        _errorMessage = e.toString();
-      });
+      setState(() => _errorMessage = e.toString());
     } finally {
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-        });
-      }
+      if (mounted) setState(() => _isLoading = false);
     }
+  }
+
+  void _onPrimaryButton() {
+    if (_isLogin) {
+      if (_step == 0) {
+        unawaited(_onContinueEmail());
+      } else {
+        _submitSignIn();
+      }
+      return;
+    }
+    switch (_step) {
+      case 0:
+        unawaited(_onContinueEmail());
+        break;
+      case 1:
+        _signUpContinueFromPassword();
+        break;
+      case 2:
+        _signUpContinueFromUsername();
+        break;
+      case 3:
+        _signUpContinueFromLanguage();
+        break;
+      case 4:
+        _signUpContinueFromPurpose();
+        break;
+    }
+  }
+
+  Future<void> _signInWithGoogle() async {
+    FocusScope.of(context).unfocus();
+    setState(() {
+      _googleLoading = true;
+      _errorMessage = null;
+    });
+    try {
+      final credential = await _authService.signInWithGoogle();
+      if (credential?.user != null) {
+        await _ensureUserProfile(credential!.user!);
+        widget.onLoginSuccess();
+      }
+    } catch (e) {
+      setState(() => _errorMessage = e.toString());
+    } finally {
+      if (mounted) setState(() => _googleLoading = false);
+    }
+  }
+
+  void _showPhoneSoonSnack() {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          appLanguage.t('login.phoneSoon'),
+          style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.w600),
+        ),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      ),
+    );
+  }
+
+  String _titleForStep() {
+    final t = appLanguage.t;
+    if (_isLogin) {
+      return _step == 0 ? t('login.signInHeadline') : t('login.signInHeadline');
+    }
+    switch (_step) {
+      case 0:
+        return t('login.signUpHeadline');
+      case 1:
+        return t('signup.createPasswordTitle');
+      case 2:
+        return t('signup.usernameTitle');
+      case 3:
+        return t('signup.languageTitle');
+      case 4:
+        return t('signup.purposeTitle');
+      default:
+        return '';
+    }
+  }
+
+  String _primaryLabel() {
+    final t = appLanguage.t;
+    if (_isLogin) {
+      return _step == 0 ? t('login.continue') : t('login.signIn');
+    }
+    return _step == 4 ? t('login.createAccount') : t('login.continue');
   }
 
   @override
   Widget build(BuildContext context) {
+    final t = appLanguage.t;
+    final c = context.colors;
     final base = GoogleFonts.plusJakartaSans();
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return Scaffold(
-      backgroundColor: AppColors.onboardingBackground,
+      backgroundColor: _pageBg(context),
       body: SafeArea(
-        child: SingleChildScrollView(
-          physics: const BouncingScrollPhysics(),
-          padding: const EdgeInsets.fromLTRB(24, 20, 24, 40),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              const SizedBox(height: 20),
-              // Logo
-              Center(
-                child: Container(
-                  width: 72,
-                  height: 72,
-                  decoration: const BoxDecoration(
-                    shape: BoxShape.circle,
-                    gradient: LinearGradient(
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                      colors: [
-                        AppColors.onboardingBlueDeep,
-                        AppColors.onboardingBlue,
-                      ],
+        bottom: false,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(4, 4, 8, 8),
+              child: Row(
+                children: [
+                  IconButton(
+                    onPressed: _goBack,
+                    icon: Icon(
+                      Icons.arrow_back_ios_new_rounded,
+                      size: 20,
+                      color: c.textHeading,
                     ),
                   ),
-                  child: Stack(
-                    alignment: Alignment.center,
-                    children: [
-                      Icon(
-                        Icons.graphic_eq_rounded,
-                        color: Colors.white.withValues(alpha: 0.35),
-                        size: 40,
-                      ),
-                      const Icon(
-                        Icons.mic_rounded,
-                        color: Colors.white,
-                        size: 32,
-                      ),
-                    ],
-                  ),
-                ),
+                  const Spacer(),
+                  const _LoginThemeToggle(),
+                ],
               ),
-              const SizedBox(height: 20),
-              Text(
-                'SpeechUp',
-                textAlign: TextAlign.center,
-                style: base.copyWith(
-                  fontSize: 28,
-                  fontWeight: FontWeight.w800,
-                  color: AppColors.onboardingNavy,
-                ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                _isLogin
-                    ? 'Đăng nhập để tiếp tục luyện tập'
-                    : 'Tạo tài khoản mới',
-                textAlign: TextAlign.center,
-                style: base.copyWith(
-                  fontSize: 15,
-                  fontWeight: FontWeight.w500,
-                  color: AppColors.onboardingTextMuted,
-                ),
-              ),
-              const SizedBox(height: 36),
-
-              // Form
-              Form(
-                key: _formKey,
+            ),
+            Expanded(
+              child: SingleChildScrollView(
+                physics: const BouncingScrollPhysics(),
+                padding: const EdgeInsets.fromLTRB(24, 0, 24, 16),
                 child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    // Name field (register only)
-                    if (!_isLogin) ...[
-                      _buildTextField(
-                        controller: _nameController,
-                        hint: 'Họ và tên',
-                        icon: Icons.person_outlined,
-                        validator: (value) {
-                          if (value == null || value.trim().isEmpty) {
-                            return 'Vui lòng nhập tên';
-                          }
-                          return null;
-                        },
-                      ),
-                      const SizedBox(height: 14),
+                    if (_step == 0) ...[
+                      Center(child: _LogoHelloRow(textColor: c.textHeading)),
+                      const SizedBox(height: 28),
                     ],
-
-                    // Email
-                    _buildTextField(
-                      controller: _emailController,
-                      hint: 'Email',
-                      icon: Icons.email_outlined,
-                      keyboardType: TextInputType.emailAddress,
-                      validator: (value) {
-                        if (value == null || value.trim().isEmpty) {
-                          return 'Vui lòng nhập email';
-                        }
-                        if (!value.contains('@')) {
-                          return 'Email không hợp lệ';
-                        }
-                        return null;
-                      },
-                    ),
-                    const SizedBox(height: 14),
-
-                    // Password
-                    _buildTextField(
-                      controller: _passwordController,
-                      hint: 'Mật khẩu',
-                      icon: Icons.lock_outline_rounded,
-                      obscure: _obscurePassword,
-                      suffixIcon: IconButton(
-                        icon: Icon(
-                          _obscurePassword
-                              ? Icons.visibility_off_outlined
-                              : Icons.visibility_outlined,
-                          color: AppColors.onboardingTextMuted,
-                          size: 22,
-                        ),
-                        onPressed: () =>
-                            setState(() => _obscurePassword = !_obscurePassword),
+                    Text(
+                      _titleForStep(),
+                      style: GoogleFonts.plusJakartaSans(
+                        fontSize: 26,
+                        fontWeight: FontWeight.w800,
+                        height: 1.25,
+                        letterSpacing: -0.35,
+                        color: c.textHeading,
                       ),
-                      validator: (value) {
-                        if (value == null || value.isEmpty) {
-                          return 'Vui lòng nhập mật khẩu';
-                        }
-                        if (value.length < 6) {
-                          return 'Mật khẩu phải có ít nhất 6 ký tự';
-                        }
-                        return null;
-                      },
                     ),
+                    const SizedBox(height: 28),
+                    ..._buildStepContent(context, base, c, isDark),
                   ],
                 ),
               ),
-              const SizedBox(height: 10),
-
-              // Error message
-              if (_errorMessage != null)
-                Container(
-                  margin: const EdgeInsets.only(bottom: 14),
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                  decoration: BoxDecoration(
-                    color: AppColors.error.withValues(alpha: 0.08),
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(
-                      color: AppColors.error.withValues(alpha: 0.25),
-                    ),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(
-                        Icons.error_outline_rounded,
-                        color: AppColors.error,
-                        size: 20,
+            ),
+            Padding(
+              padding: EdgeInsets.fromLTRB(24, 0, 24, 16 + MediaQuery.paddingOf(context).bottom),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (_errorMessage != null) ...[
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 12,
                       ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Text(
-                          _errorMessage!,
-                          style: base.copyWith(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w600,
+                      margin: const EdgeInsets.only(bottom: 14),
+                      decoration: BoxDecoration(
+                        color: AppColors.error.withValues(alpha: 0.08),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: AppColors.error.withValues(alpha: 0.25),
+                        ),
+                      ),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Icon(
+                            Icons.error_outline_rounded,
                             color: AppColors.error,
+                            size: 20,
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              _errorMessage!,
+                              style: base.copyWith(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                                color: AppColors.error,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                  _PrimaryBlueButton(
+                    label: _primaryLabel(),
+                    loading: _isLoading,
+                    onPressed: _onPrimaryButton,
+                  ),
+                  if (_step == 0) ...[
+                    const SizedBox(height: 28),
+                    _OrDivider(label: t('login.or'), mutedColor: c.textMuted),
+                    const SizedBox(height: 22),
+                    _GoogleSignInButton(
+                      label: t('login.google'),
+                      loading: _googleLoading,
+                      isDark: isDark,
+                      onPressed: _signInWithGoogle,
+                    ),
+                    if (!_isLogin) ...[
+                      const SizedBox(height: 28),
+                      _LoginTermsRichText(textMuted: c.textMuted),
+                      const SizedBox(height: 20),
+                    ] else
+                      const SizedBox(height: 24),
+                    _AuthModeFooter(
+                      isLogin: _isLogin,
+                      onToggle: () {
+                        setState(() {
+                          _isLogin = !_isLogin;
+                          _step = 0;
+                          _errorMessage = null;
+                          _passwordController.clear();
+                          _usernameController.clear();
+                          _selectedLanguageDisplay = null;
+                          _selectedPurposeKeys.clear();
+                          _credentialFormKey.currentState?.reset();
+                        });
+                      },
+                    ),
+                  ] else if (_isLogin && _step == 1) ...[
+                    const SizedBox(height: 16),
+                    Center(
+                      child: TextButton(
+                        onPressed: () => _showForgotPassword(context),
+                        style: TextButton.styleFrom(
+                          foregroundColor: c.textMuted,
+                        ),
+                        child: Text(
+                          t('login.forgotPassword'),
+                          style: base.copyWith(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                            decoration: TextDecoration.underline,
+                            decorationColor: c.textMuted,
                           ),
                         ),
                       ),
-                    ],
-                  ),
-                ),
-
-              const SizedBox(height: 8),
-
-              // Submit button
-              SizedBox(
-                height: 54,
-                child: Material(
-                  color: Colors.transparent,
-                  child: InkWell(
-                    onTap: _isLoading ? null : _submit,
-                    borderRadius: BorderRadius.circular(16),
-                    child: Ink(
-                      decoration: BoxDecoration(
-                        gradient: _isLoading
-                            ? null
-                            : AppColors.onboardingCtaGradient,
-                        color: _isLoading
-                            ? AppColors.onboardingDotInactive
-                            : null,
-                        borderRadius: BorderRadius.circular(16),
-                        boxShadow: _isLoading
-                            ? null
-                            : [
-                                BoxShadow(
-                                  color: AppColors.onboardingBlue
-                                      .withValues(alpha: 0.28),
-                                  blurRadius: 18,
-                                  offset: const Offset(0, 8),
-                                ),
-                              ],
-                      ),
-                      child: Center(
-                        child: _isLoading
-                            ? const SizedBox(
-                                width: 24,
-                                height: 24,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2.5,
-                                  valueColor: AlwaysStoppedAnimation<Color>(
-                                      Colors.white),
-                                ),
-                              )
-                            : Text(
-                                _isLogin ? 'Đăng nhập' : 'Đăng ký',
-                                style: base.copyWith(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w700,
-                                  color: Colors.white,
-                                ),
-                              ),
-                      ),
                     ),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 20),
-
-              // Toggle login/register
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Text(
-                    _isLogin
-                        ? 'Chưa có tài khoản? '
-                        : 'Đã có tài khoản? ',
-                    style: base.copyWith(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w500,
-                      color: AppColors.onboardingTextMuted,
-                    ),
-                  ),
-                  GestureDetector(
-                    onTap: () {
-                      setState(() {
-                        _isLogin = !_isLogin;
-                        _errorMessage = null;
-                      });
-                    },
-                    child: Text(
-                      _isLogin ? 'Đăng ký' : 'Đăng nhập',
-                      style: base.copyWith(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w800,
-                        color: AppColors.onboardingBlue,
-                      ),
-                    ),
-                  ),
+                  ],
                 ],
               ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 
-              // Forgot password (login only)
-              if (_isLogin) ...[
-                const SizedBox(height: 14),
-                Center(
-                  child: GestureDetector(
-                    onTap: () => _showForgotPassword(context),
-                    child: Text(
-                      'Quên mật khẩu?',
-                      style: base.copyWith(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600,
-                        color: AppColors.onboardingTextMuted,
-                        decoration: TextDecoration.underline,
-                        decorationColor: AppColors.onboardingTextMuted,
-                      ),
+  List<Widget> _buildEmailFieldSection(
+    BuildContext context,
+    TextStyle base,
+    AppColorsExtension c,
+  ) {
+    final t = appLanguage.t;
+    return [
+      Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            child: Text(
+              t('login.emailLabel'),
+              style: base.copyWith(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: c.textMuted,
+              ),
+            ),
+          ),
+          TextButton(
+            onPressed: _showPhoneSoonSnack,
+            style: TextButton.styleFrom(
+              padding: EdgeInsets.zero,
+              minimumSize: Size.zero,
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              foregroundColor: AppColors.onboardingBlue,
+            ),
+            child: Text(
+              t('login.signInWithPhone'),
+              style: base.copyWith(
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+                color: AppColors.onboardingBlue,
+              ),
+            ),
+          ),
+        ],
+      ),
+      const SizedBox(height: 8),
+      TextField(
+        controller: _emailController,
+        keyboardType: TextInputType.emailAddress,
+        autocorrect: false,
+        style: base.copyWith(
+          fontSize: 16,
+          fontWeight: FontWeight.w600,
+          color: c.textHeading,
+        ),
+        decoration: _filledDecoration(
+          context,
+          hint: t('login.emailHint'),
+          fill: _fieldFill(context),
+        ),
+        onSubmitted: (_) => unawaited(_onContinueEmail()),
+      ),
+    ];
+  }
+
+  List<Widget> _buildStepContent(
+    BuildContext context,
+    TextStyle base,
+    AppColorsExtension c,
+    bool isDark,
+  ) {
+    final t = appLanguage.t;
+
+    if (_isLogin) {
+      if (_step == 0) {
+        return _buildEmailFieldSection(context, base, c);
+      }
+      return [
+        Form(
+          key: _credentialFormKey,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                t('login.password'),
+                style: base.copyWith(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: c.textMuted,
+                ),
+              ),
+              const SizedBox(height: 8),
+              TextFormField(
+                controller: _passwordController,
+                obscureText: _obscurePassword,
+                style: base.copyWith(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                  color: c.textHeading,
+                ),
+                decoration: _filledDecoration(
+                  context,
+                  hint: t('signup.passwordHint'),
+                  fill: _fieldFill(context),
+                ).copyWith(
+                  suffixIcon: IconButton(
+                    icon: Icon(
+                      _obscurePassword
+                          ? Icons.visibility_off_outlined
+                          : Icons.visibility_outlined,
+                      color: c.textMuted,
+                      size: 22,
                     ),
+                    onPressed: () =>
+                        setState(() => _obscurePassword = !_obscurePassword),
+                  ),
+                ),
+                validator: (value) {
+                  if (value == null || value.isEmpty) {
+                    return t('login.valPassword');
+                  }
+                  if (value.length < 6) {
+                    return t('login.valPasswordShort');
+                  }
+                  return null;
+                },
+              ),
+            ],
+          ),
+        ),
+      ];
+    }
+
+    switch (_step) {
+      case 0:
+        return _buildEmailFieldSection(context, base, c);
+      case 1:
+        return [
+          Text.rich(
+            TextSpan(
+              style: base.copyWith(
+                fontSize: 14,
+                fontWeight: FontWeight.w400,
+                color: c.textMuted,
+                height: 1.45,
+              ),
+              children: [
+                TextSpan(text: t('signup.passwordHelperBefore')),
+                TextSpan(
+                  text: t('signup.passwordHelperBold'),
+                  style: base.copyWith(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w800,
+                    color: c.textHeading,
                   ),
                 ),
               ],
+            ),
+          ),
+          const SizedBox(height: 16),
+          Text(
+            t('login.password'),
+            style: base.copyWith(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: c.textMuted,
+            ),
+          ),
+          const SizedBox(height: 8),
+          TextField(
+            controller: _passwordController,
+            obscureText: _obscurePassword,
+            style: base.copyWith(
+              fontSize: 16,
+              fontWeight: FontWeight.w600,
+              color: c.textHeading,
+            ),
+            decoration: _filledDecoration(
+              context,
+              hint: t('signup.passwordHint'),
+              fill: _fieldFill(context),
+            ).copyWith(
+              suffixIcon: IconButton(
+                icon: Icon(
+                  _obscurePassword
+                      ? Icons.visibility_off_outlined
+                      : Icons.visibility_outlined,
+                  color: c.textMuted,
+                  size: 22,
+                ),
+                onPressed: () =>
+                    setState(() => _obscurePassword = !_obscurePassword),
+              ),
+            ),
+          ),
+        ];
+      case 2:
+        return [
+          Text(
+            t('signup.usernameLabel'),
+            style: base.copyWith(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: c.textMuted,
+            ),
+          ),
+          const SizedBox(height: 8),
+          TextField(
+            controller: _usernameController,
+            autocorrect: false,
+            style: base.copyWith(
+              fontSize: 16,
+              fontWeight: FontWeight.w600,
+              color: c.textHeading,
+            ),
+            decoration: _filledDecoration(
+              context,
+              hint: t('signup.usernameHint'),
+              fill: _fieldFill(context),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            t('signup.usernameHelper'),
+            style: base.copyWith(
+              fontSize: 13,
+              fontWeight: FontWeight.w400,
+              color: c.textMuted,
+              height: 1.45,
+            ),
+          ),
+        ];
+      case 3:
+        return [
+          _LanguagePickCard(
+            title: t('signup.langEnglish'),
+            subtitle: 'English (US)',
+            emoji: '🇺🇸',
+            selected: _selectedLanguageDisplay == 'English (US)',
+            isDark: isDark,
+            onTap: () {
+              setState(() {
+                _selectedLanguageDisplay = 'English (US)';
+                _errorMessage = null;
+              });
+            },
+          ),
+          const SizedBox(height: 12),
+          _LanguagePickCard(
+            title: t('signup.langVietnamese'),
+            subtitle: 'Tiếng Việt',
+            emoji: '🇻🇳',
+            selected: _selectedLanguageDisplay == 'Tiếng Việt',
+            isDark: isDark,
+            onTap: () {
+              setState(() {
+                _selectedLanguageDisplay = 'Tiếng Việt';
+                _errorMessage = null;
+              });
+            },
+          ),
+        ];
+      case 4:
+        return [
+          Text(
+            t('signup.purposeMultiHint'),
+            style: base.copyWith(
+              fontSize: 14,
+              fontWeight: FontWeight.w500,
+              color: c.textMuted,
+              height: 1.45,
+            ),
+          ),
+          const SizedBox(height: 16),
+          for (var i = 0; i < _purposeOptionKeys.length; i++) ...[
+            if (i > 0) const SizedBox(height: 12),
+            _PurposePickCard(
+              title: t('signup.purpose.${_purposeOptionKeys[i]}'),
+              icon: _purposeIcon(_purposeOptionKeys[i]),
+              selected: _selectedPurposeKeys.contains(_purposeOptionKeys[i]),
+              isDark: isDark,
+              onTap: () {
+                final k = _purposeOptionKeys[i];
+                setState(() {
+                  if (_selectedPurposeKeys.contains(k)) {
+                    _selectedPurposeKeys.remove(k);
+                  } else {
+                    _selectedPurposeKeys.add(k);
+                  }
+                  _errorMessage = null;
+                });
+              },
+            ),
+          ],
+        ];
+      default:
+        return [];
+    }
+  }
+
+  IconData _purposeIcon(String key) {
+    switch (key) {
+      case 'clarity':
+        return Icons.record_voice_over_outlined;
+      case 'fluency':
+        return Icons.speed_outlined;
+      case 'confidence':
+        return Icons.mic_none_rounded;
+      case 'professional':
+        return Icons.work_outline_rounded;
+      case 'habit':
+        return Icons.event_repeat_outlined;
+      default:
+        return Icons.flag_outlined;
+    }
+  }
+
+  InputDecoration _filledDecoration(
+    BuildContext context, {
+    required String hint,
+    required Color fill,
+  }) {
+    final base = GoogleFonts.plusJakartaSans();
+    final c = context.colors;
+    final radius = BorderRadius.circular(14);
+
+    return InputDecoration(
+      hintText: hint,
+      hintStyle: base.copyWith(
+        fontSize: 16,
+        fontWeight: FontWeight.w500,
+        color: c.textMuted.withValues(alpha: 0.75),
+      ),
+      filled: true,
+      fillColor: fill,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+      border: OutlineInputBorder(
+        borderRadius: radius,
+        borderSide: BorderSide.none,
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: radius,
+        borderSide: BorderSide.none,
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: radius,
+        borderSide: const BorderSide(color: AppColors.onboardingBlue, width: 1.5),
+      ),
+      errorBorder: OutlineInputBorder(
+        borderRadius: radius,
+        borderSide: BorderSide(color: AppColors.error.withValues(alpha: 0.45)),
+      ),
+      focusedErrorBorder: OutlineInputBorder(
+        borderRadius: radius,
+        borderSide: const BorderSide(color: AppColors.error, width: 1.5),
+      ),
+    );
+  }
+
+  void _showForgotPassword(BuildContext context) {
+    final base = GoogleFonts.plusJakartaSans();
+    final resetEmailController = TextEditingController(text: _emailController.text);
+    final c = context.colors;
+    final sheetDark = Theme.of(context).brightness == Brightness.dark;
+
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => Padding(
+        padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(ctx).bottom),
+        child: Container(
+          decoration: BoxDecoration(
+            color: sheetDark ? c.surfaceBg : Colors.white,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+          ),
+          padding: EdgeInsets.fromLTRB(24, 12, 24, 24 + MediaQuery.paddingOf(ctx).bottom),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: c.onboardingDotInactive,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              const SizedBox(height: 20),
+              Text(
+                appLanguage.t('login.resetTitle'),
+                style: base.copyWith(
+                  fontSize: 20,
+                  fontWeight: FontWeight.w800,
+                  color: c.textHeading,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                appLanguage.t('login.resetHint'),
+                textAlign: TextAlign.center,
+                style: base.copyWith(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w500,
+                  color: c.textMuted,
+                ),
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: resetEmailController,
+                keyboardType: TextInputType.emailAddress,
+                style: base.copyWith(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                  color: c.textHeading,
+                ),
+                decoration: _filledDecoration(
+                  ctx,
+                  hint: appLanguage.t('login.emailHint'),
+                  fill: _fieldFill(ctx),
+                ),
+              ),
+              const SizedBox(height: 20),
+              SizedBox(
+                width: double.infinity,
+                height: 52,
+                child: FilledButton(
+                  onPressed: () async {
+                    final email = resetEmailController.text.trim();
+                    if (email.isEmpty) return;
+                    try {
+                      await _authService.resetPassword(email);
+                      if (ctx.mounted) {
+                        Navigator.pop(ctx);
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text(
+                              appLanguage.t('login.resetSent'),
+                              style: base.copyWith(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            backgroundColor: AppColors.feedbackGood,
+                            behavior: SnackBarBehavior.floating,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(14),
+                            ),
+                          ),
+                        );
+                      }
+                    } catch (e) {
+                      if (ctx.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text(e.toString()),
+                            backgroundColor: AppColors.error,
+                            behavior: SnackBarBehavior.floating,
+                          ),
+                        );
+                      }
+                    }
+                  },
+                  style: FilledButton.styleFrom(
+                    backgroundColor: AppColors.onboardingBlue,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                  ),
+                  child: Text(
+                    appLanguage.t('login.resetSubmit'),
+                    style: base.copyWith(fontSize: 16, fontWeight: FontWeight.w700),
+                  ),
+                ),
+              ),
             ],
           ),
         ),
       ),
     );
   }
+}
 
-  Widget _buildTextField({
-    required TextEditingController controller,
-    required String hint,
-    required IconData icon,
-    TextInputType? keyboardType,
-    bool obscure = false,
-    Widget? suffixIcon,
-    String? Function(String?)? validator,
-  }) {
+class _LanguagePickCard extends StatelessWidget {
+  final String title;
+  final String subtitle;
+  final String emoji;
+  final bool selected;
+  final bool isDark;
+  final VoidCallback onTap;
+
+  const _LanguagePickCard({
+    required this.title,
+    required this.subtitle,
+    required this.emoji,
+    required this.selected,
+    required this.isDark,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
     final base = GoogleFonts.plusJakartaSans();
-    return TextFormField(
-      controller: controller,
-      keyboardType: keyboardType,
-      obscureText: obscure,
-      style: base.copyWith(
-        fontSize: 15,
-        fontWeight: FontWeight.w600,
-        color: AppColors.onboardingNavy,
-      ),
-      decoration: InputDecoration(
-        hintText: hint,
-        hintStyle: base.copyWith(
-          fontSize: 15,
-          fontWeight: FontWeight.w500,
-          color: AppColors.onboardingTextMuted,
-        ),
-        prefixIcon: Icon(
-          icon,
-          color: AppColors.onboardingTextMuted,
-          size: 22,
-        ),
-        suffixIcon: suffixIcon,
-        filled: true,
-        fillColor: Colors.white,
-        contentPadding:
-            const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(16),
-          borderSide: BorderSide(
-            color: AppColors.onboardingDotInactive.withValues(alpha: 0.5),
-          ),
-        ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(16),
-          borderSide: BorderSide(
-            color: AppColors.onboardingDotInactive.withValues(alpha: 0.5),
-          ),
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(16),
-          borderSide: const BorderSide(
-            color: AppColors.onboardingBlue,
-            width: 1.5,
-          ),
-        ),
-        errorBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(16),
-          borderSide: BorderSide(
-            color: AppColors.error.withValues(alpha: 0.5),
-          ),
-        ),
-        focusedErrorBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(16),
-          borderSide: const BorderSide(
-            color: AppColors.error,
-            width: 1.5,
-          ),
-        ),
-      ),
-      validator: validator,
+    final border = Border.all(
+      color: selected ? AppColors.onboardingBlue : Colors.transparent,
+      width: selected ? 1.5 : 0,
     );
-  }
+    final bg = selected
+        ? (isDark ? const Color(0xFF1A2744) : const Color(0xFFE8F2FF))
+        : (isDark ? const Color(0xFF1C1C1E) : const Color(0xFFF2F2F7));
 
-  void _showForgotPassword(BuildContext context) {
-    final base = GoogleFonts.plusJakartaSans();
-    final resetEmailController = TextEditingController();
-
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (context) => Container(
-        decoration: const BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
-        ),
-        padding: EdgeInsets.fromLTRB(
-            24, 12, 24, 24 + MediaQuery.paddingOf(context).bottom),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 40,
-              height: 4,
-              decoration: BoxDecoration(
-                color: AppColors.onboardingDotInactive,
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-            const SizedBox(height: 24),
-            Text(
-              'Đặt lại mật khẩu',
-              style: base.copyWith(
-                fontSize: 20,
-                fontWeight: FontWeight.w800,
-                color: AppColors.onboardingNavy,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Nhập email để nhận liên kết đặt lại mật khẩu',
-              textAlign: TextAlign.center,
-              style: base.copyWith(
-                fontSize: 14,
-                fontWeight: FontWeight.w500,
-                color: AppColors.onboardingTextMuted,
-              ),
-            ),
-            const SizedBox(height: 20),
-            _buildTextField(
-              controller: resetEmailController,
-              hint: 'Email',
-              icon: Icons.email_outlined,
-              keyboardType: TextInputType.emailAddress,
-            ),
-            const SizedBox(height: 20),
-            SizedBox(
-              width: double.infinity,
-              height: 52,
-              child: Material(
-                color: Colors.transparent,
-                child: InkWell(
-                  onTap: () async {
-                    if (resetEmailController.text.trim().isNotEmpty) {
-                      try {
-                        await _authService
-                            .resetPassword(resetEmailController.text.trim());
-                        if (context.mounted) {
-                          Navigator.pop(context);
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: Text(
-                                'Đã gửi email đặt lại mật khẩu!',
-                                style: base.copyWith(
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                              backgroundColor: AppColors.feedbackGood,
-                              behavior: SnackBarBehavior.floating,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(14),
-                              ),
-                            ),
-                          );
-                        }
-                      } catch (e) {
-                        if (context.mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: Text(e.toString()),
-                              backgroundColor: AppColors.error,
-                              behavior: SnackBarBehavior.floating,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(14),
-                              ),
-                            ),
-                          );
-                        }
-                      }
-                    }
-                  },
-                  borderRadius: BorderRadius.circular(14),
-                  child: Ink(
-                    decoration: BoxDecoration(
-                      gradient: AppColors.onboardingCtaGradient,
-                      borderRadius: BorderRadius.circular(14),
-                    ),
-                    child: Center(
-                      child: Text(
-                        'Gửi email',
-                        style: base.copyWith(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w700,
-                          color: Colors.white,
-                        ),
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(16),
+        child: Ink(
+          decoration: BoxDecoration(
+            color: bg,
+            borderRadius: BorderRadius.circular(16),
+            border: border,
+          ),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+          child: Row(
+            children: [
+              Text(emoji, style: const TextStyle(fontSize: 28)),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: base.copyWith(
+                        fontSize: 17,
+                        fontWeight: FontWeight.w700,
+                        color: context.colors.textHeading,
                       ),
                     ),
+                    const SizedBox(height: 2),
+                    Text(
+                      subtitle,
+                      style: base.copyWith(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w500,
+                        color: context.colors.textMuted,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Icon(
+                Icons.chevron_right_rounded,
+                color: context.colors.textMuted,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _PurposePickCard extends StatelessWidget {
+  final String title;
+  final IconData icon;
+  final bool selected;
+  final bool isDark;
+  final VoidCallback onTap;
+
+  const _PurposePickCard({
+    required this.title,
+    required this.icon,
+    required this.selected,
+    required this.isDark,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final base = GoogleFonts.plusJakartaSans();
+    final border = Border.all(
+      color: selected ? AppColors.onboardingBlue : Colors.transparent,
+      width: selected ? 1.5 : 0,
+    );
+    final bg = selected
+        ? (isDark ? const Color(0xFF1A2744) : const Color(0xFFE8F2FF))
+        : (isDark ? const Color(0xFF1C1C1E) : const Color(0xFFF2F2F7));
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(16),
+        child: Ink(
+          decoration: BoxDecoration(
+            color: bg,
+            borderRadius: BorderRadius.circular(16),
+            border: border,
+          ),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 18),
+          child: Row(
+            children: [
+              Icon(icon, size: 26, color: context.colors.textHeading),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Text(
+                  title,
+                  style: base.copyWith(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                    color: context.colors.textHeading,
+                    height: 1.3,
                   ),
                 ),
               ),
-            ),
-          ],
+              Icon(
+                selected
+                    ? Icons.check_circle_rounded
+                    : Icons.circle_outlined,
+                size: 24,
+                color: selected
+                    ? AppColors.onboardingBlue
+                    : context.colors.textMuted.withValues(alpha: 0.35),
+              ),
+            ],
+          ),
         ),
       ),
+    );
+  }
+}
+
+class _LoginThemeToggle extends StatelessWidget {
+  const _LoginThemeToggle();
+
+  @override
+  Widget build(BuildContext context) {
+    final notifier = context.watch<ThemeNotifier>();
+    final isDark = notifier.isDark;
+    final c = context.colors;
+
+    return IconButton(
+      onPressed: () => notifier.toggle(),
+      icon: isDark
+          ? Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                color: const Color(0xFF2C2C2E),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              alignment: Alignment.center,
+              child: Icon(
+                Icons.wb_sunny_rounded,
+                size: 22,
+                color: Colors.amber.shade300,
+              ),
+            )
+          : SizedBox(
+              width: 40,
+              height: 40,
+              child: Icon(
+                Icons.dark_mode_outlined,
+                color: c.textMuted,
+                size: 22,
+              ),
+            ),
+    );
+  }
+}
+
+class _LogoHelloRow extends StatelessWidget {
+  final Color textColor;
+
+  const _LogoHelloRow({required this.textColor});
+
+  @override
+  Widget build(BuildContext context) {
+    final t = appLanguage.t;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 48,
+          height: 48,
+          decoration: BoxDecoration(
+            color: AppColors.onboardingBlue,
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Stack(
+            clipBehavior: Clip.none,
+            children: [
+              Positioned(
+                left: 7,
+                top: 12,
+                child: Icon(
+                  Icons.chat_bubble_rounded,
+                  color: Colors.white.withValues(alpha: 0.82),
+                  size: 18,
+                ),
+              ),
+              Positioned(
+                right: 7,
+                bottom: 10,
+                child: const Icon(
+                  Icons.chat_bubble_rounded,
+                  color: Colors.white,
+                  size: 20,
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(width: 14),
+        Text(
+          t('login.hello'),
+          style: GoogleFonts.plusJakartaSans(
+            fontSize: 22,
+            fontWeight: FontWeight.w800,
+            color: textColor,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _PrimaryBlueButton extends StatelessWidget {
+  final String label;
+  final bool loading;
+  final VoidCallback onPressed;
+
+  const _PrimaryBlueButton({
+    required this.label,
+    required this.loading,
+    required this.onPressed,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final base = GoogleFonts.plusJakartaSans();
+
+    return SizedBox(
+      height: 54,
+      width: double.infinity,
+      child: FilledButton(
+        onPressed: loading ? null : onPressed,
+        style: FilledButton.styleFrom(
+          backgroundColor: AppColors.onboardingBlue,
+          foregroundColor: Colors.white,
+          disabledBackgroundColor: AppColors.onboardingDotInactive,
+          elevation: 0,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+          ),
+        ),
+        child: loading
+            ? const SizedBox(
+                width: 24,
+                height: 24,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2.5,
+                  valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                ),
+              )
+            : Text(
+                label,
+                style: base.copyWith(fontSize: 16, fontWeight: FontWeight.w700),
+              ),
+      ),
+    );
+  }
+}
+
+class _OrDivider extends StatelessWidget {
+  final String label;
+  final Color mutedColor;
+
+  const _OrDivider({required this.label, required this.mutedColor});
+
+  @override
+  Widget build(BuildContext context) {
+    final base = GoogleFonts.plusJakartaSans(
+      fontSize: 13,
+      fontWeight: FontWeight.w500,
+      color: mutedColor,
+    );
+
+    return Row(
+      children: [
+        Expanded(child: Divider(color: mutedColor.withValues(alpha: 0.35))),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14),
+          child: Text(label, style: base),
+        ),
+        Expanded(child: Divider(color: mutedColor.withValues(alpha: 0.35))),
+      ],
+    );
+  }
+}
+
+class _GoogleSignInButton extends StatelessWidget {
+  final String label;
+  final bool loading;
+  final bool isDark;
+  final VoidCallback onPressed;
+
+  const _GoogleSignInButton({
+    required this.label,
+    required this.loading,
+    required this.isDark,
+    required this.onPressed,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final base = GoogleFonts.plusJakartaSans();
+    final bg = isDark ? const Color(0xFF2C2C3A) : const Color(0xFFE8F1FC);
+    final fg = Theme.of(context).brightness == Brightness.dark
+        ? Colors.white
+        : const Color(0xFF1C1C1E);
+
+    return SizedBox(
+      height: 54,
+      width: double.infinity,
+      child: Material(
+        color: bg,
+        borderRadius: BorderRadius.circular(14),
+        child: InkWell(
+          onTap: loading ? null : onPressed,
+          borderRadius: BorderRadius.circular(14),
+          child: Center(
+            child: loading
+                ? SizedBox(
+                    width: 24,
+                    height: 24,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2.5,
+                      valueColor: AlwaysStoppedAnimation<Color>(fg),
+                    ),
+                  )
+                : Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Container(
+                        width: 22,
+                        height: 22,
+                        decoration: const BoxDecoration(
+                          color: Colors.white,
+                          shape: BoxShape.circle,
+                        ),
+                        alignment: Alignment.center,
+                        child: Text(
+                          'G',
+                          style: GoogleFonts.plusJakartaSans(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w800,
+                            color: const Color(0xFF4285F4),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Text(
+                        label,
+                        style: base.copyWith(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w700,
+                          color: fg,
+                        ),
+                      ),
+                    ],
+                  ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _LoginTermsRichText extends StatefulWidget {
+  final Color textMuted;
+
+  const _LoginTermsRichText({required this.textMuted});
+
+  @override
+  State<_LoginTermsRichText> createState() => _LoginTermsRichTextState();
+}
+
+class _LoginTermsRichTextState extends State<_LoginTermsRichText> {
+  late final TapGestureRecognizer _termsTap;
+  late final TapGestureRecognizer _privacyTap;
+
+  @override
+  void initState() {
+    super.initState();
+    _termsTap = TapGestureRecognizer()..onTap = () {};
+    _privacyTap = TapGestureRecognizer()..onTap = () {};
+  }
+
+  @override
+  void dispose() {
+    _termsTap.dispose();
+    _privacyTap.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final t = appLanguage.t;
+    final base = GoogleFonts.plusJakartaSans(
+      fontSize: 12,
+      fontWeight: FontWeight.w400,
+      color: widget.textMuted,
+      height: 1.45,
+    );
+    final link = GoogleFonts.plusJakartaSans(
+      fontSize: 12,
+      fontWeight: FontWeight.w700,
+      color: AppColors.onboardingBlue,
+      decoration: TextDecoration.underline,
+      decorationColor: AppColors.onboardingBlue,
+      height: 1.45,
+    );
+
+    return Text.rich(
+      TextSpan(
+        style: base,
+        children: [
+          TextSpan(text: t('login.termsJoin')),
+          TextSpan(text: t('login.termsLink'), style: link, recognizer: _termsTap),
+          TextSpan(text: t('login.termsAnd')),
+          TextSpan(
+            text: t('login.privacyLink'),
+            style: link,
+            recognizer: _privacyTap,
+          ),
+          TextSpan(text: t('login.termsEnd')),
+        ],
+      ),
+      textAlign: TextAlign.center,
+    );
+  }
+}
+
+class _AuthModeFooter extends StatelessWidget {
+  final bool isLogin;
+  final VoidCallback onToggle;
+
+  const _AuthModeFooter({
+    required this.isLogin,
+    required this.onToggle,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final t = appLanguage.t;
+    final base = GoogleFonts.plusJakartaSans();
+    final muted = context.colors.textMuted;
+
+    final lead = isLogin ? t('login.noAccount') : t('login.haveAccount');
+    final action = isLogin ? t('login.signUp') : t('login.logIn');
+
+    return Wrap(
+      alignment: WrapAlignment.center,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      spacing: 4,
+      children: [
+        Text(
+          lead,
+          style: base.copyWith(
+            fontSize: 14,
+            fontWeight: FontWeight.w500,
+            color: muted,
+          ),
+        ),
+        GestureDetector(
+          onTap: onToggle,
+          child: Text(
+            action,
+            style: base.copyWith(
+              fontSize: 14,
+              fontWeight: FontWeight.w800,
+              color: AppColors.onboardingBlue,
+              decoration: TextDecoration.underline,
+              decorationColor: AppColors.onboardingBlue,
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

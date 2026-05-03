@@ -26,9 +26,10 @@ class _MainShellState extends State<MainShell> {
   @override
   Widget build(BuildContext context) {
     final t = appLanguage.t;
+    final c = context.colors;
 
     return Scaffold(
-      backgroundColor: AppColors.dashboardBackground,
+      backgroundColor: c.scaffoldBg,
       body: IndexedStack(
         index: _currentIndex,
         children: [
@@ -46,10 +47,10 @@ class _MainShellState extends State<MainShell> {
       ),
       bottomNavigationBar: Container(
         decoration: BoxDecoration(
-          color: AppColors.surface,
+          color: c.surfaceBg,
           boxShadow: [
             BoxShadow(
-              color: AppColors.shadowLight,
+              color: c.shadowColor,
               blurRadius: 20,
               offset: const Offset(0, -4),
             ),
@@ -64,24 +65,20 @@ class _MainShellState extends State<MainShell> {
           ),
           child: NavigationBarTheme(
             data: NavigationBarThemeData(
-              indicatorColor: AppColors.dashboardNavPill,
+              indicatorColor: c.navPill,
               labelTextStyle: WidgetStateProperty.resolveWith((states) {
                 final selected = states.contains(WidgetState.selected);
                 return TextStyle(
                   fontSize: 12,
                   fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-                  color: selected
-                      ? AppColors.onboardingBlue
-                      : AppColors.dashboardNavInactive,
+                  color: selected ? c.accentBlue : c.navInactive,
                 );
               }),
               iconTheme: WidgetStateProperty.resolveWith((states) {
                 final selected = states.contains(WidgetState.selected);
                 return IconThemeData(
                   size: 24,
-                  color: selected
-                      ? AppColors.onboardingBlue
-                      : AppColors.dashboardNavInactive,
+                  color: selected ? c.accentBlue : c.navInactive,
                 );
               }),
             ),
@@ -94,28 +91,28 @@ class _MainShellState extends State<MainShell> {
               labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
               destinations: [
                 NavigationDestination(
-                  icon: Icon(Icons.home_rounded),
-                  selectedIcon: Icon(Icons.home_rounded),
+                  icon: const Icon(Icons.home_rounded),
+                  selectedIcon: const Icon(Icons.home_rounded),
                   label: t('nav.home'),
                 ),
                 NavigationDestination(
-                  icon: Icon(Icons.fitness_center_rounded),
-                  selectedIcon: Icon(Icons.fitness_center_rounded),
+                  icon: const Icon(Icons.fitness_center_rounded),
+                  selectedIcon: const Icon(Icons.fitness_center_rounded),
                   label: t('nav.practice'),
                 ),
                 NavigationDestination(
-                  icon: Icon(Icons.chat_bubble_rounded),
-                  selectedIcon: Icon(Icons.chat_bubble_rounded),
+                  icon: const Icon(Icons.chat_bubble_rounded),
+                  selectedIcon: const Icon(Icons.chat_bubble_rounded),
                   label: t('nav.chat'),
                 ),
                 NavigationDestination(
-                  icon: Icon(Icons.show_chart_rounded),
-                  selectedIcon: Icon(Icons.show_chart_rounded),
+                  icon: const Icon(Icons.show_chart_rounded),
+                  selectedIcon: const Icon(Icons.show_chart_rounded),
                   label: t('nav.progress'),
                 ),
                 NavigationDestination(
-                  icon: Icon(Icons.person_rounded),
-                  selectedIcon: Icon(Icons.person_rounded),
+                  icon: const Icon(Icons.person_rounded),
+                  selectedIcon: const Icon(Icons.person_rounded),
                   label: t('nav.profile'),
                 ),
               ],

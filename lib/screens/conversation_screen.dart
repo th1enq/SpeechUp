@@ -287,13 +287,14 @@ class _ScenarioCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final base = GoogleFonts.plusJakartaSans();
+    final c = context.colors;
     return Container(
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: c.cardBg,
         borderRadius: BorderRadius.circular(22),
         boxShadow: [
           BoxShadow(
-            color: AppColors.dashboardNavy.withValues(alpha: 0.06),
+            color: c.shadowColor.withValues(alpha: 0.5),
             blurRadius: 16,
             offset: const Offset(0, 6),
           ),
@@ -327,7 +328,7 @@ class _ScenarioCard extends StatelessWidget {
                         style: base.copyWith(
                           fontSize: 15,
                           fontWeight: FontWeight.w800,
-                          color: AppColors.dashboardNavy,
+                          color: c.textHeading,
                         ),
                       ),
                       const SizedBox(height: 4),
@@ -336,7 +337,7 @@ class _ScenarioCard extends StatelessWidget {
                         style: base.copyWith(
                           fontSize: 13,
                           fontWeight: FontWeight.w500,
-                          color: AppColors.dashboardTextMuted,
+                          color: c.textMuted,
                           height: 1.35,
                         ),
                       ),
@@ -548,14 +549,15 @@ class _ConversationChatState extends State<_ConversationChat> {
   @override
   Widget build(BuildContext context) {
     final base = GoogleFonts.plusJakartaSans();
+    final c = context.colors;
     return Scaffold(
-      backgroundColor: AppColors.dashboardBackground,
+      backgroundColor: c.scaffoldBg,
       appBar: AppBar(
-        backgroundColor: Colors.white,
+        backgroundColor: c.surfaceBg,
         elevation: 0,
         surfaceTintColor: Colors.transparent,
         leading: IconButton(
-          icon: Icon(Icons.arrow_back_rounded, color: AppColors.dashboardNavy),
+          icon: Icon(Icons.arrow_back_rounded, color: c.textHeading),
           onPressed: widget.onExit,
         ),
         title: Row(
@@ -583,7 +585,7 @@ class _ConversationChatState extends State<_ConversationChat> {
                     style: base.copyWith(
                       fontSize: 14,
                       fontWeight: FontWeight.w800,
-                      color: AppColors.dashboardNavy,
+                      color: c.textHeading,
                     ),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
@@ -594,7 +596,7 @@ class _ConversationChatState extends State<_ConversationChat> {
                       style: base.copyWith(
                         fontSize: 11,
                         fontWeight: FontWeight.w600,
-                        color: AppColors.onboardingBlue,
+                        color: c.accentBlue,
                       ),
                     ),
                 ],
@@ -607,7 +609,7 @@ class _ConversationChatState extends State<_ConversationChat> {
             icon: Icon(
               Icons.tune_rounded,
               size: 22,
-              color: AppColors.dashboardNavy,
+              color: c.textHeading,
             ),
             onPressed: () {
               showModalBottomSheet(
@@ -622,7 +624,7 @@ class _ConversationChatState extends State<_ConversationChat> {
             icon: Icon(
               Icons.close_rounded,
               size: 22,
-              color: AppColors.dashboardNavy,
+              color: c.textHeading,
             ),
             onPressed: widget.onExit,
           ),
@@ -651,10 +653,10 @@ class _ConversationChatState extends State<_ConversationChat> {
               margin: const EdgeInsets.fromLTRB(16, 0, 16, 12),
               padding: const EdgeInsets.all(14),
               decoration: BoxDecoration(
-                color: Colors.white,
+                color: c.cardBg,
                 borderRadius: BorderRadius.circular(18),
                 border: Border.all(
-                  color: AppColors.onboardingBlue.withValues(alpha: 0.18),
+                  color: c.accentBlue.withValues(alpha: 0.18),
                 ),
               ),
               child: Text(
@@ -665,8 +667,8 @@ class _ConversationChatState extends State<_ConversationChat> {
                   fontSize: 13,
                   fontWeight: FontWeight.w600,
                   color: _speechService.recognizedText.isEmpty
-                      ? AppColors.dashboardTextMuted
-                      : AppColors.dashboardNavy,
+                      ? c.textMuted
+                      : c.textHeading,
                   height: 1.4,
                 ),
               ),
@@ -679,10 +681,10 @@ class _ConversationChatState extends State<_ConversationChat> {
               16 + MediaQuery.paddingOf(context).bottom,
             ),
             decoration: BoxDecoration(
-              color: Colors.white,
+              color: c.surfaceBg,
               boxShadow: [
                 BoxShadow(
-                  color: AppColors.dashboardNavy.withValues(alpha: 0.06),
+                  color: c.shadowColor.withValues(alpha: 0.55),
                   blurRadius: 16,
                   offset: const Offset(0, -4),
                 ),
@@ -850,10 +852,11 @@ class _VoiceSettingsSheetState extends State<_VoiceSettingsSheet> {
   @override
   Widget build(BuildContext context) {
     final base = GoogleFonts.plusJakartaSans();
+    final c = context.colors;
     return Container(
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      decoration: BoxDecoration(
+        color: c.surfaceBg,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
       ),
       padding: const EdgeInsets.fromLTRB(24, 12, 24, 40),
       child: Column(
@@ -874,7 +877,7 @@ class _VoiceSettingsSheetState extends State<_VoiceSettingsSheet> {
             style: base.copyWith(
               fontSize: 20,
               fontWeight: FontWeight.w800,
-              color: AppColors.dashboardNavy,
+              color: c.textHeading,
             ),
           ),
           const SizedBox(height: 24),
@@ -886,7 +889,7 @@ class _VoiceSettingsSheetState extends State<_VoiceSettingsSheet> {
               style: base.copyWith(
                 fontSize: 15,
                 fontWeight: FontWeight.w800,
-                color: AppColors.dashboardNavy,
+                color: c.textHeading,
               ),
             ),
           ),
@@ -907,12 +910,12 @@ class _VoiceSettingsSheetState extends State<_VoiceSettingsSheet> {
                 decoration: BoxDecoration(
                   color: isSelected
                       ? (voice['color'] as Color).withValues(alpha: 0.09)
-                      : AppColors.dashboardBackground,
+                      : c.metricRowBg,
                   borderRadius: BorderRadius.circular(16),
                   border: Border.all(
                     color: isSelected
                         ? (voice['color'] as Color).withValues(alpha: 0.45)
-                        : AppColors.dashboardTextMuted.withValues(alpha: 0.12),
+                        : c.borderColor.withValues(alpha: 0.55),
                     width: isSelected ? 1.5 : 1,
                   ),
                 ),
@@ -942,7 +945,7 @@ class _VoiceSettingsSheetState extends State<_VoiceSettingsSheet> {
                           fontWeight: isSelected
                               ? FontWeight.w800
                               : FontWeight.w600,
-                          color: AppColors.dashboardNavy,
+                          color: c.textHeading,
                         ),
                       ),
                     ),
@@ -988,7 +991,7 @@ class _VoiceSettingsSheetState extends State<_VoiceSettingsSheet> {
               style: base.copyWith(
                 fontSize: 15,
                 fontWeight: FontWeight.w800,
-                color: AppColors.dashboardNavy,
+                color: c.textHeading,
               ),
             ),
           ),
@@ -1000,7 +1003,7 @@ class _VoiceSettingsSheetState extends State<_VoiceSettingsSheet> {
                 style: base.copyWith(
                   fontSize: 12,
                   fontWeight: FontWeight.w600,
-                  color: AppColors.dashboardTextMuted,
+                  color: c.textMuted,
                 ),
               ),
               Expanded(
@@ -1009,8 +1012,8 @@ class _VoiceSettingsSheetState extends State<_VoiceSettingsSheet> {
                   min: 0.5,
                   max: 1.5,
                   divisions: 4,
-                  activeColor: AppColors.onboardingBlue,
-                  inactiveColor: AppColors.onboardingBlue.withValues(
+                  activeColor: c.accentBlue,
+                  inactiveColor: c.accentBlue.withValues(
                     alpha: 0.18,
                   ),
                   label: _speed == 0.5
@@ -1030,7 +1033,7 @@ class _VoiceSettingsSheetState extends State<_VoiceSettingsSheet> {
                 style: base.copyWith(
                   fontSize: 12,
                   fontWeight: FontWeight.w600,
-                  color: AppColors.dashboardTextMuted,
+                  color: c.textMuted,
                 ),
               ),
             ],

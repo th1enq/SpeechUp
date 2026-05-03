@@ -25,27 +25,29 @@ class ClayContainer extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final c = context.colors;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
     final container = Container(
       width: width,
       height: height,
       padding: padding ?? const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: color ?? AppColors.cardBackground,
+        color: color ?? c.cardBg,
         borderRadius: BorderRadius.circular(borderRadius),
         border: Border.all(
-          color: AppColors.primaryLight.withValues(alpha: 0.15),
+          color: isDark
+              ? c.borderColor.withValues(alpha: 0.8)
+              : AppColors.primaryLight.withValues(alpha: 0.15),
           width: 1.5,
         ),
         boxShadow: [
           BoxShadow(
-            color: AppColors.shadowLight,
-            offset: const Offset(0, 4),
-            blurRadius: 12,
-          ),
-          BoxShadow(
-            color: Colors.white.withValues(alpha: 0.8),
-            offset: const Offset(-2, -2),
-            blurRadius: 8,
+            color: isDark
+                ? c.shadowColor
+                : AppColors.shadowLight,
+            offset: const Offset(0, 6),
+            blurRadius: 16,
           ),
         ],
       ),
@@ -333,11 +335,12 @@ class ChatBubble extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final c = context.colors;
     final bodyStyle = GoogleFonts.plusJakartaSans(
       fontSize: 15,
       fontWeight: FontWeight.w500,
       height: 1.45,
-      color: isUser ? Colors.white : AppColors.dashboardNavy,
+      color: isUser ? Colors.white : c.textBody,
     );
     return Align(
       alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
@@ -348,8 +351,8 @@ class ChatBubble extends StatelessWidget {
         margin: const EdgeInsets.symmetric(vertical: 5, horizontal: 16),
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
         decoration: BoxDecoration(
-          gradient: isUser ? AppColors.dashboardHeroGradient : null,
-          color: isUser ? null : Colors.white,
+          gradient: isUser ? c.heroGradient : null,
+          color: isUser ? null : c.cardBg,
           borderRadius: BorderRadius.only(
             topLeft: const Radius.circular(20),
             topRight: const Radius.circular(20),
@@ -359,12 +362,11 @@ class ChatBubble extends StatelessWidget {
           border: isUser
               ? null
               : Border.all(
-                  color:
-                      AppColors.dashboardTextMuted.withValues(alpha: 0.12),
+                  color: c.borderColor.withValues(alpha: 0.7),
                 ),
           boxShadow: [
             BoxShadow(
-              color: AppColors.dashboardNavy.withValues(alpha: 0.06),
+              color: c.shadowColor.withValues(alpha: 0.55),
               blurRadius: 10,
               offset: const Offset(0, 3),
             ),
@@ -381,7 +383,7 @@ class ChatBubble extends StatelessWidget {
                 style: GoogleFonts.plusJakartaSans(
                   color: isUser
                       ? Colors.white.withValues(alpha: 0.75)
-                      : AppColors.dashboardTextMuted,
+                      : c.textMuted,
                   fontSize: 11,
                   fontWeight: FontWeight.w500,
                 ),
@@ -440,13 +442,14 @@ class _TypingIndicatorState extends State<TypingIndicator>
 
   @override
   Widget build(BuildContext context) {
+    final c = context.colors;
     return Align(
       alignment: Alignment.centerLeft,
       child: Container(
         margin: const EdgeInsets.symmetric(vertical: 4, horizontal: 16),
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
         decoration: BoxDecoration(
-          color: Colors.white,
+          color: c.cardBg,
           borderRadius: const BorderRadius.only(
             topLeft: Radius.circular(20),
             topRight: Radius.circular(20),
@@ -454,11 +457,11 @@ class _TypingIndicatorState extends State<TypingIndicator>
             bottomRight: Radius.circular(20),
           ),
           border: Border.all(
-            color: AppColors.dashboardTextMuted.withValues(alpha: 0.1),
+            color: c.borderColor.withValues(alpha: 0.6),
           ),
           boxShadow: [
             BoxShadow(
-              color: AppColors.dashboardNavy.withValues(alpha: 0.05),
+              color: c.shadowColor.withValues(alpha: 0.5),
               blurRadius: 10,
               offset: const Offset(0, 3),
             ),

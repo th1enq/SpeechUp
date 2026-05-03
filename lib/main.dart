@@ -6,15 +6,17 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:provider/provider.dart';
 import 'l10n/app_language.dart';
 import 'theme/app_theme.dart';
 import 'theme/app_colors.dart';
+import 'theme/theme_notifier.dart';
+import 'services/notification_service.dart';
 import 'screens/main_shell.dart';
 import 'screens/onboarding_screen.dart';
 import 'screens/login_screen.dart';
 
 /// Whether Firebase is available on the current platform.
-/// Firebase supports Android, iOS, Web, macOS — NOT Linux or Windows.
 bool get isFirebaseSupported {
   if (kIsWeb) return true;
   return Platform.isAndroid || Platform.isIOS || Platform.isMacOS;
@@ -23,35 +25,54 @@ bool get isFirebaseSupported {
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Initialize Firebase only on supported platforms
   if (isFirebaseSupported) {
     await Firebase.initializeApp();
   }
 
-  // Set status bar style
-  SystemChrome.setSystemUIOverlayStyle(
-    const SystemUiOverlayStyle(
-      statusBarColor: Colors.transparent,
-      statusBarIconBrightness: Brightness.dark,
-      systemNavigationBarColor: AppColors.surface,
-      systemNavigationBarIconBrightness: Brightness.dark,
-    ),
-  );
+  await NotificationService().init();
 
-  // Lock to portrait
   SystemChrome.setPreferredOrientations([
     DeviceOrientation.portraitUp,
     DeviceOrientation.portraitDown,
   ]);
 
-  runApp(const SpeechUpApp());
+  runApp(
+    ChangeNotifierProvider(
+      create: (_) => ThemeNotifier(),
+      child: const SpeechUpApp(),
+    ),
+  );
 }
 
-class SpeechUpApp extends StatelessWidget {
+class SpeechUpApp extends StatefulWidget {
   const SpeechUpApp({super.key});
 
   @override
+  State<SpeechUpApp> createState() => _SpeechUpAppState();
+}
+
+class _SpeechUpAppState extends State<SpeechUpApp> {
+  void _applySystemUiOverlay(bool isDark) {
+    SystemChrome.setSystemUIOverlayStyle(SystemUiOverlayStyle(
+      statusBarColor: Colors.transparent,
+      statusBarIconBrightness: isDark ? Brightness.light : Brightness.dark,
+      // Same nav bar treatment in both modes avoids layout jumping when toggling theme.
+      systemNavigationBarColor: Colors.transparent,
+      systemNavigationBarContrastEnforced: false,
+      systemNavigationBarIconBrightness:
+          isDark ? Brightness.light : Brightness.dark,
+    ));
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final themeNotifier = context.watch<ThemeNotifier>();
+    final isDark = themeNotifier.isDark;
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _applySystemUiOverlay(isDark);
+    });
+
     return AnimatedBuilder(
       animation: appLanguage,
       builder: (context, _) {
@@ -59,6 +80,8 @@ class SpeechUpApp extends StatelessWidget {
           title: appLanguage.t('app.title'),
           debugShowCheckedModeBanner: false,
           theme: AppTheme.lightTheme,
+          darkTheme: AppTheme.darkTheme,
+          themeMode: themeNotifier.mode,
           locale: appLanguage.locale,
           supportedLocales: const [
             Locale('en'),
@@ -113,57 +136,39 @@ class _AppRootState extends State<AppRoot> {
 
   @override
   Widget build(BuildContext context) {
-    // Show loading while checking onboarding status
+    final c = context.colors;
+
     if (_isCheckingOnboarding) {
-      return const Scaffold(
-        backgroundColor: AppColors.onboardingBackground,
+      return Scaffold(
+        backgroundColor: c.onboardingBg,
         body: Center(
-          child: CircularProgressIndicator(
-            color: AppColors.onboardingBlue,
-          ),
+          child: CircularProgressIndicator(color: c.accentBlue),
         ),
       );
     }
 
-    // Step 1: Onboarding
     if (!_hasCompletedOnboarding) {
-      return OnboardingScreen(
-        onComplete: _completeOnboarding,
-      );
+      return OnboardingScreen(onComplete: _completeOnboarding);
     }
 
-    // Step 2: On unsupported platforms (Linux/Windows), skip auth
     if (!isFirebaseSupported) {
       return const MainShell();
     }
 
-    // Step 3: Auth check (only on supported platforms)
+    // initialData avoids a transient `waiting` frame that replaced [LoginScreen]
+    // when locale/theme rebuilds MaterialApp (was resetting signup state).
     return StreamBuilder<User?>(
       stream: FirebaseAuth.instance.authStateChanges(),
+      initialData: FirebaseAuth.instance.currentUser,
       builder: (context, snapshot) {
-        // Loading
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Scaffold(
-            backgroundColor: AppColors.onboardingBackground,
-            body: Center(
-              child: CircularProgressIndicator(
-                color: AppColors.onboardingBlue,
-              ),
-            ),
-          );
+        final user = snapshot.data;
+        if (user != null) {
+          return const MainShell();
         }
-
-        // Not authenticated → show login
-        if (snapshot.data == null) {
-          return LoginScreen(
-            onLoginSuccess: () {
-              // StreamBuilder will auto-rebuild when auth state changes
-            },
-          );
-        }
-
-        // Authenticated → show main app
-        return const MainShell();
+        return LoginScreen(
+          key: const ValueKey<Object>('auth_login'),
+          onLoginSuccess: () {},
+        );
       },
     );
   }

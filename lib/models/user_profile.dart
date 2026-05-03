@@ -12,6 +12,8 @@ class UserProfile {
   final String language;
   final String difficulty;
   final bool notificationsEnabled;
+  /// Sign-up goal keys from onboarding (multi-select), e.g. clarity, fluency.
+  final List<String> practiceGoals;
 
   const UserProfile({
     required this.uid,
@@ -25,7 +27,24 @@ class UserProfile {
     this.language = 'English (US)',
     this.difficulty = 'Intermediate',
     this.notificationsEnabled = true,
+    this.practiceGoals = const [],
   });
+
+  static List<String> _practiceGoalsFromData(Map<String, dynamic> data) {
+    final raw = data['practiceGoals'];
+    if (raw is List) {
+      return raw.map((e) => e.toString()).where((s) => s.isNotEmpty).toList();
+    }
+    final legacy = data['practiceGoal'];
+    if (legacy is String && legacy.isNotEmpty) {
+      return legacy
+          .split(',')
+          .map((s) => s.trim())
+          .where((s) => s.isNotEmpty)
+          .toList();
+    }
+    return const [];
+  }
 
   factory UserProfile.fromFirestore(DocumentSnapshot doc) {
     final data = doc.data() as Map<String, dynamic>;
@@ -41,6 +60,7 @@ class UserProfile {
       language: data['language'] ?? 'English (US)',
       difficulty: data['difficulty'] ?? 'Intermediate',
       notificationsEnabled: data['notificationsEnabled'] ?? true,
+      practiceGoals: _practiceGoalsFromData(data),
     );
   }
 
@@ -56,6 +76,7 @@ class UserProfile {
       'language': language,
       'difficulty': difficulty,
       'notificationsEnabled': notificationsEnabled,
+      'practiceGoals': practiceGoals,
     };
   }
 
@@ -69,6 +90,7 @@ class UserProfile {
     String? language,
     String? difficulty,
     bool? notificationsEnabled,
+    List<String>? practiceGoals,
   }) {
     return UserProfile(
       uid: uid,
@@ -82,6 +104,7 @@ class UserProfile {
       language: language ?? this.language,
       difficulty: difficulty ?? this.difficulty,
       notificationsEnabled: notificationsEnabled ?? this.notificationsEnabled,
+      practiceGoals: practiceGoals ?? this.practiceGoals,
     );
   }
 }

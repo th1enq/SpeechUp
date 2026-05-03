@@ -223,6 +223,7 @@ class _PracticeExerciseCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final style = GoogleFonts.plusJakartaSans();
+    final c = context.colors;
 
     late final Color cardBg;
     late final Widget leadingIcon;
@@ -234,7 +235,7 @@ class _PracticeExerciseCard extends StatelessWidget {
 
     switch (variant) {
       case _ExerciseVisual.readSentence:
-        cardBg = Colors.white;
+        cardBg = c.cardBg;
         leadingIcon = Container(
           width: 52,
           height: 52,
@@ -248,8 +249,8 @@ class _PracticeExerciseCard extends StatelessWidget {
             size: 26,
           ),
         );
-        tagBg = AppColors.practiceTagEasyBg;
-        tagText = AppColors.practiceTagEasyText;
+        tagBg = c.practiceTagEasyBg;
+        tagText = c.practiceTagEasyText;
         watermark = Icons.menu_book_rounded;
         watermarkColor = AppColors.onboardingBlue;
         action = _GradientStartButton(
@@ -258,7 +259,7 @@ class _PracticeExerciseCard extends StatelessWidget {
         );
         break;
       case _ExerciseVisual.shadowing:
-        cardBg = AppColors.practiceCardLavender;
+        cardBg = c.practiceCardLavender;
         leadingIcon = Container(
           width: 52,
           height: 52,
@@ -272,8 +273,8 @@ class _PracticeExerciseCard extends StatelessWidget {
             size: 26,
           ),
         );
-        tagBg = AppColors.practiceTagMidBg;
-        tagText = AppColors.practiceTagMidText;
+        tagBg = c.practiceTagMidBg;
+        tagText = c.practiceTagMidText;
         watermark = Icons.fitness_center_rounded;
         watermarkColor = AppColors.practicePurple;
         action = _OutlineStartButton(
@@ -283,7 +284,7 @@ class _PracticeExerciseCard extends StatelessWidget {
         );
         break;
       case _ExerciseVisual.slowSpeech:
-        cardBg = AppColors.practiceCardBlush;
+        cardBg = c.practiceCardBlush;
         leadingIcon = Container(
           width: 52,
           height: 52,
@@ -297,8 +298,8 @@ class _PracticeExerciseCard extends StatelessWidget {
             size: 26,
           ),
         );
-        tagBg = AppColors.practiceTagHardBg;
-        tagText = AppColors.practiceTagHardText;
+        tagBg = c.practiceTagMidBg;
+        tagText = c.practiceTagMidText;
         watermark = Icons.speed_rounded;
         watermarkColor = AppColors.practicePurpleDeep;
         action = _OutlineStartButton(
@@ -314,7 +315,7 @@ class _PracticeExerciseCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(24),
         boxShadow: [
           BoxShadow(
-            color: AppColors.dashboardNavy.withValues(alpha: 0.07),
+            color: c.shadowColor.withValues(alpha: 0.35),
             blurRadius: 18,
             offset: const Offset(0, 8),
           ),
@@ -375,7 +376,7 @@ class _PracticeExerciseCard extends StatelessWidget {
                                 style: style.copyWith(
                                   fontSize: 17,
                                   fontWeight: FontWeight.w800,
-                                  color: AppColors.dashboardNavy,
+                                  color: c.textHeading,
                                   height: 1.2,
                                 ),
                               ),
@@ -393,7 +394,7 @@ class _PracticeExerciseCard extends StatelessWidget {
                         fontStyle: bodyItalic
                             ? FontStyle.italic
                             : FontStyle.normal,
-                        color: AppColors.dashboardTextMuted,
+                        color: c.textMuted,
                         height: 1.5,
                       ),
                     ),
@@ -419,6 +420,7 @@ class _GradientStartButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final style = GoogleFonts.plusJakartaSans();
+    final c = context.colors;
     return SizedBox(
       width: double.infinity,
       height: 48,
@@ -429,7 +431,7 @@ class _GradientStartButton extends StatelessWidget {
           borderRadius: BorderRadius.circular(14),
           child: Ink(
             decoration: BoxDecoration(
-              gradient: AppColors.dashboardHeroGradient,
+              gradient: c.heroGradient,
               borderRadius: BorderRadius.circular(14),
             ),
             child: Center(
@@ -463,11 +465,12 @@ class _OutlineStartButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final style = GoogleFonts.plusJakartaSans();
+    final c = context.colors;
     return SizedBox(
       width: double.infinity,
       height: 48,
       child: Material(
-        color: Colors.white,
+        color: c.surfaceBg,
         borderRadius: BorderRadius.circular(14),
         child: InkWell(
           onTap: onTap,
@@ -913,28 +916,35 @@ class _RecordingScreenState extends State<_RecordingScreen> {
     final score = ((fluency + pronunciation) / 2).round();
 
     final firestoreService = FirestoreService();
-    final session = PracticeSession(
-      userId: user.uid,
-      exerciseType: widget.exerciseType,
-      content: transcript,
-      score: score,
-      durationSeconds: durationSeconds,
-      fluency: fluency,
-      pronunciation: pronunciation,
-      speechSpeed: wordsPerMinute,
-      createdAt: DateTime.now(),
-    );
-    await firestoreService.savePracticeSession(session);
+    try {
+      final session = PracticeSession(
+        userId: user.uid,
+        exerciseType: widget.exerciseType,
+        content: transcript,
+        score: score,
+        durationSeconds: durationSeconds,
+        fluency: fluency,
+        pronunciation: pronunciation,
+        speechSpeed: wordsPerMinute,
+        createdAt: DateTime.now(),
+      );
+      await firestoreService.savePracticeSession(session);
 
-    final profile = await firestoreService.getUserProfile(user.uid);
-    if (profile != null) {
-      await firestoreService.updateUserProfile(user.uid, {
-        'totalSessions': profile.totalSessions + 1,
-        'totalSpeakingMinutes':
-            profile.totalSpeakingMinutes + (durationSeconds / 60),
-      });
+      final profile = await firestoreService.getUserProfile(user.uid);
+      if (profile != null) {
+        await firestoreService.updateUserProfile(user.uid, {
+          'totalSessions': profile.totalSessions + 1,
+          'totalSpeakingMinutes':
+              profile.totalSpeakingMinutes + (durationSeconds / 60),
+        });
+      }
+      await firestoreService.updateStreak(user.uid);
+    } catch (e) {
+      debugPrint('Failed to save practice session: $e');
+      if (mounted) {
+        _showSnackBar(appLanguage.t('common.error'));
+      }
     }
-    await firestoreService.updateStreak(user.uid);
   }
 
   void _handleSpeechUpdate() {
