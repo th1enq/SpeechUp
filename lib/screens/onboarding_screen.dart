@@ -67,6 +67,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     final t = appLanguage.t;
     final c = context.colors;
     final base = GoogleFonts.plusJakartaSans();
+    final compact = MediaQuery.sizeOf(context).width < 370;
 
     return Scaffold(
       backgroundColor: _welcomeBackground(context),
@@ -77,7 +78,6 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
               padding: const EdgeInsets.fromLTRB(20, 4, 8, 8),
               child: Row(
                 children: [
-                  const _SpeechUpLogo(),
                   const Spacer(),
                   const _OnboardingThemeToggle(),
                 ],
@@ -90,24 +90,24 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                 children: [
                   SingleChildScrollView(
                     physics: const BouncingScrollPhysics(),
-                    padding: const EdgeInsets.symmetric(horizontal: 24),
+                    padding: EdgeInsets.symmetric(horizontal: compact ? 18 : 24),
                     child: Column(
                       children: [
                         const SizedBox(height: 4),
                         const _WelcomeHero(),
-                        const SizedBox(height: 28),
+                        SizedBox(height: compact ? 20 : 28),
                         Text(
                           t('onboarding.welcomeHeadline'),
                           textAlign: TextAlign.center,
                           style: GoogleFonts.plusJakartaSans(
-                            fontSize: 26,
+                            fontSize: compact ? 23 : 26,
                             fontWeight: FontWeight.w800,
                             height: 1.25,
                             letterSpacing: -0.3,
                             color: c.textHeading,
                           ),
                         ),
-                        const SizedBox(height: 24),
+                        SizedBox(height: compact ? 18 : 24),
                       ],
                     ),
                   ),
@@ -119,16 +119,18 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
               ),
             ),
             Padding(
-              padding: const EdgeInsets.fromLTRB(24, 8, 24, 28),
+              padding: EdgeInsets.fromLTRB(24, 6, 24, compact ? 14 : 20),
               child: Column(
                 children: [
+                  _SolidPrimaryCta(
+                    label: _currentPage == 0
+                        ? t('onboarding.startLearning')
+                        : t('onboarding.getStarted'),
+                    showArrow: false,
+                    onPressed: _nextPage,
+                  ),
+                  const SizedBox(height: 18),
                   if (_currentPage == 0) ...[
-                    _SolidPrimaryCta(
-                      label: t('onboarding.startLearning'),
-                      showArrow: false,
-                      onPressed: _nextPage,
-                    ),
-                    const SizedBox(height: 18),
                     Text.rich(
                       TextSpan(
                         style: base.copyWith(
@@ -138,7 +140,9 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                           height: 1.4,
                         ),
                         children: [
-                          TextSpan(text: '${t('onboarding.alreadyHaveAccount')} '),
+                          TextSpan(
+                            text: '${t('onboarding.alreadyHaveAccount')} ',
+                          ),
                           TextSpan(
                             text: t('onboarding.logIn'),
                             style: base.copyWith(
@@ -175,14 +179,6 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                       );
                     }),
                   ),
-                  if (_currentPage == 1) ...[
-                    const SizedBox(height: 22),
-                    _SolidPrimaryCta(
-                      label: t('onboarding.getStarted'),
-                      showArrow: false,
-                      onPressed: _nextPage,
-                    ),
-                  ],
                 ],
               ),
             ),
@@ -206,84 +202,26 @@ class _OnboardingThemeToggle extends StatelessWidget {
       onPressed: () => notifier.toggle(),
       tooltip: isDark ? 'Light mode' : 'Dark mode',
       style: IconButton.styleFrom(
+        minimumSize: const Size(40, 40),
+        maximumSize: const Size(40, 40),
+        padding: EdgeInsets.zero,
         tapTargetSize: MaterialTapTargetSize.shrinkWrap,
       ),
-      icon: isDark
-          ? Container(
-              width: 40,
-              height: 40,
-              decoration: BoxDecoration(
-                color: const Color(0xFF2C2C2E),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              alignment: Alignment.center,
-              child: Icon(
-                Icons.wb_sunny_rounded,
-                size: 22,
-                color: Colors.amber.shade300,
-              ),
-            )
-          : Icon(
-              Icons.dark_mode_outlined,
-              color: c.textMuted,
-              size: 26,
-            ),
-    );
-  }
-}
-
-class _SpeechUpLogo extends StatelessWidget {
-  const _SpeechUpLogo();
-
-  @override
-  Widget build(BuildContext context) {
-    final c = context.colors;
-
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Container(
-          width: 44,
-          height: 44,
-          decoration: BoxDecoration(
-            color: AppColors.onboardingBlue,
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: Stack(
-            clipBehavior: Clip.none,
-            children: [
-              Positioned(
-                left: 6,
-                top: 11,
-                child: Icon(
-                  Icons.chat_bubble_rounded,
-                  color: Colors.white.withValues(alpha: 0.82),
-                  size: 17,
-                ),
-              ),
-              Positioned(
-                right: 6,
-                bottom: 9,
-                child: const Icon(
-                  Icons.chat_bubble_rounded,
-                  color: Colors.white,
-                  size: 19,
-                ),
-              ),
-            ],
-          ),
+      icon: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        width: 40,
+        height: 40,
+        decoration: BoxDecoration(
+          color: isDark ? const Color(0xFF2C2C2E) : Colors.transparent,
+          borderRadius: BorderRadius.circular(10),
         ),
-        const SizedBox(width: 12),
-        Text(
-          'SpeechUp',
-          style: GoogleFonts.plusJakartaSans(
-            fontSize: 20,
-            fontWeight: FontWeight.w800,
-            letterSpacing: -0.4,
-            color: c.textHeading,
-          ),
+        alignment: Alignment.center,
+        child: Icon(
+          isDark ? Icons.wb_sunny_rounded : Icons.dark_mode_outlined,
+          size: 22,
+          color: isDark ? Colors.amber.shade300 : c.textMuted,
         ),
-      ],
+      ),
     );
   }
 }

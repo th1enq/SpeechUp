@@ -6,6 +6,7 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../l10n/app_language.dart';
 import '../models/user_profile.dart';
@@ -39,9 +40,8 @@ class _LoginScreenState extends State<LoginScreen> {
   final _credentialFormKey = GlobalKey<FormState>();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
-  final _usernameController = TextEditingController();
 
-  /// Login: 0 = email, 1 = password. Sign-up: 0–4 (email → password → username → language → purpose).
+  /// Login: 0 = email, 1 = password. Sign-up: 0 = email, 1 = password.
   int _step = 0;
   bool _isLogin = true;
   bool _isLoading = false;
@@ -77,7 +77,6 @@ class _LoginScreenState extends State<LoginScreen> {
   void dispose() {
     _emailController.dispose();
     _passwordController.dispose();
-    _usernameController.dispose();
     super.dispose();
   }
 
@@ -140,7 +139,18 @@ class _LoginScreenState extends State<LoginScreen> {
             await _authService.fetchSignInMethodsForEmail(emailForLookup);
         if (!mounted) return;
 
-        final blocked = _emailGateMessageAfterLookup(methods);
+        String? blocked = _emailGateMessageAfterLookup(methods);
+
+        // If Firebase hides providers (methods empty), use profile collection
+        // as immediate fallback for signup duplicate-email messaging.
+        if (blocked == null && !_isLogin && methods.isEmpty) {
+          final exists = await _firestoreService.isEmailRegistered(emailForLookup);
+          if (!mounted) return;
+          if (exists) {
+            blocked = appLanguage.t('signup.emailAlreadyRegistered');
+          }
+        }
+
         if (blocked != null) {
           setState(() {
             _errorMessage = blocked;
@@ -178,54 +188,7 @@ class _LoginScreenState extends State<LoginScreen> {
       setState(() => _errorMessage = t('signup.valPasswordStrong'));
       return;
     }
-    setState(() {
-      _errorMessage = null;
-      _step = 2;
-    });
-  }
-
-  bool _validateUsername() {
-    final t = appLanguage.t;
-    final u = _usernameController.text.trim();
-    if (u.length < 3 || u.length > 20) {
-      setState(() => _errorMessage = t('signup.valUsername'));
-      return false;
-    }
-    if (!RegExp(r'^[a-zA-Z0-9_-]+$').hasMatch(u)) {
-      setState(() => _errorMessage = t('signup.valUsername'));
-      return false;
-    }
     setState(() => _errorMessage = null);
-    return true;
-  }
-
-  void _signUpContinueFromUsername() {
-    FocusScope.of(context).unfocus();
-    if (!_validateUsername()) return;
-    setState(() {
-      _step = 3;
-      _selectedLanguageDisplay ??= 'English (US)';
-    });
-  }
-
-  void _signUpContinueFromLanguage() {
-    final t = appLanguage.t;
-    if (_selectedLanguageDisplay == null) {
-      setState(() => _errorMessage = t('signup.valPickLanguage'));
-      return;
-    }
-    setState(() {
-      _errorMessage = null;
-      _step = 4;
-    });
-  }
-
-  void _signUpContinueFromPurpose() {
-    final t = appLanguage.t;
-    if (_selectedPurposeKeys.isEmpty) {
-      setState(() => _errorMessage = t('signup.valPickPurposes'));
-      return;
-    }
     _completeSignUp();
   }
 
@@ -255,13 +218,15 @@ class _LoginScreenState extends State<LoginScreen> {
     });
 
     try {
-      await _authService.signInWithEmail(
+      final credential = await _authService.signInWithEmail(
         _emailController.text.trim(),
         _passwordController.text,
       );
       widget.onLoginSuccess();
     } catch (e) {
-      setState(() => _errorMessage = e.toString());
+      setState(
+        () => _errorMessage = 'Tài khoản hoặc mật khẩu không đúng',
+      );
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -275,31 +240,284 @@ class _LoginScreenState extends State<LoginScreen> {
     });
 
     try {
+      // Re-check right before creating account so duplicate-email always surfaces
+      // even when users return to this step after a while.
+      if (_firebaseReady) {
+        final methods = await _authService.fetchSignInMethodsForEmail(
+          _emailController.text.trim().toLowerCase(),
+        );
+        if (!mounted) return;
+        if (methods.isNotEmpty) {
+          setState(() {
+            _step = 0;
+            _errorMessage = appLanguage.t('signup.emailAlreadyRegistered');
+            _isLoading = false;
+          });
+          return;
+        }
+      }
+
       final credential = await _authService.registerWithEmail(
         _emailController.text.trim(),
         _passwordController.text,
-        _usernameController.text.trim(),
+        _emailController.text.trim().split('@').first,
       );
       if (credential.user != null) {
         await _firestoreService.createUserProfile(
           UserProfile(
             uid: credential.user!.uid,
-            displayName: _usernameController.text.trim(),
+            displayName: _emailController.text.trim().split('@').first,
             email: _emailController.text.trim(),
             createdAt: DateTime.now(),
-            language: _selectedLanguageDisplay ?? 'English (US)',
-            practiceGoals: List<String>.from(_selectedPurposeKeys)..sort(),
+            language: 'English (US)',
+            practiceGoals: const [],
           ),
         );
-      }
-      if (_selectedLanguageDisplay != null) {
-        appLanguage.setByDisplayName(_selectedLanguageDisplay!);
+        await _setFirstLoginSetupPending(credential.user!.uid, true);
       }
       widget.onLoginSuccess();
     } catch (e) {
-      setState(() => _errorMessage = e.toString());
+      final raw = e.toString().toLowerCase();
+      final duplicate = raw.contains('email-already-in-use') ||
+          raw.contains('email này đã được sử dụng') ||
+          raw.contains('already in use');
+      setState(() {
+        if (duplicate) {
+          _step = 0;
+          _errorMessage = appLanguage.t('signup.emailAlreadyRegistered');
+        } else {
+          _errorMessage = e.toString();
+        }
+      });
     } finally {
       if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  String _firstLoginSetupKey(String uid) => 'first_login_setup_completed_$uid';
+  String _firstLoginSetupPendingKey(String uid) =>
+      'first_login_setup_pending_$uid';
+
+  Future<bool?> _getFirstLoginSetupCompleted(String uid) async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(_firstLoginSetupKey(uid));
+  }
+
+  Future<void> _setFirstLoginSetupCompleted(String uid, bool value) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_firstLoginSetupKey(uid), value);
+  }
+
+  Future<bool?> _getFirstLoginSetupPending(String uid) async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(_firstLoginSetupPendingKey(uid));
+  }
+
+  Future<void> _setFirstLoginSetupPending(String uid, bool value) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_firstLoginSetupPendingKey(uid), value);
+  }
+
+  Future<void> _runFirstLoginSetupIfNeeded(User user, {bool force = false}) async {
+    final savedFlag = await _getFirstLoginSetupCompleted(user.uid);
+    final pendingFlag = await _getFirstLoginSetupPending(user.uid);
+
+    if (!force) {
+      if (pendingFlag == false && savedFlag == true) return;
+      if (pendingFlag == true) {
+        if (!mounted) return;
+        await _openFirstLoginSetupSheet(user);
+        return;
+      }
+
+      if (savedFlag == true) return;
+      if (savedFlag == null) {
+        final profile = await _firestoreService.getUserProfile(user.uid);
+        final hasName = (profile?.displayName.trim().isNotEmpty ?? false);
+        final hasGoals = (profile?.practiceGoals.isNotEmpty ?? false);
+        if (hasName && hasGoals) {
+          await _setFirstLoginSetupCompleted(user.uid, true);
+          return;
+        }
+      }
+    }
+
+    if (!mounted) return;
+    await _openFirstLoginSetupSheet(user);
+  }
+
+  Future<void> _openFirstLoginSetupSheet(User user) async {
+    final t = appLanguage.t;
+    final profile = await _firestoreService.getUserProfile(user.uid);
+
+    final displayNameController = TextEditingController(
+      text: (profile?.displayName ?? user.displayName ?? user.email?.split('@').first ?? '')
+          .trim(),
+    );
+    var language = profile?.language ?? _selectedLanguageDisplay ?? 'English (US)';
+    final selectedGoals = Set<String>.from(profile?.practiceGoals ?? const <String>[]);
+    String? localError;
+    var saving = false;
+
+    try {
+      if (!mounted) return;
+      await showModalBottomSheet<void>(
+        context: context,
+        isScrollControlled: true,
+        isDismissible: false,
+        enableDrag: false,
+        builder: (sheetContext) {
+          final c = sheetContext.colors;
+          final base = GoogleFonts.plusJakartaSans();
+          return Padding(
+            padding: EdgeInsets.fromLTRB(
+              20,
+              20,
+              20,
+              20 + MediaQuery.of(sheetContext).viewInsets.bottom,
+            ),
+            child: StatefulBuilder(
+              builder: (context, setModalState) {
+                return SingleChildScrollView(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        t('signup.usernameTitle'),
+                        style: base.copyWith(
+                          fontSize: 22,
+                          fontWeight: FontWeight.w800,
+                          color: c.textHeading,
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                      TextField(
+                        controller: displayNameController,
+                        decoration: _filledDecoration(
+                          sheetContext,
+                          hint: t('signup.usernameHint'),
+                          fill: _fieldFill(sheetContext),
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      _LanguagePickCard(
+                        title: t('signup.langEnglish'),
+                        subtitle: 'English (US)',
+                        emoji: '🇺🇸',
+                        selected: language == 'English (US)',
+                        isDark: Theme.of(sheetContext).brightness == Brightness.dark,
+                        onTap: () => setModalState(() => language = 'English (US)'),
+                      ),
+                      const SizedBox(height: 10),
+                      _LanguagePickCard(
+                        title: t('signup.langVietnamese'),
+                        subtitle: 'Tiếng Việt',
+                        emoji: '🇻🇳',
+                        selected: language == 'Tiếng Việt',
+                        isDark: Theme.of(sheetContext).brightness == Brightness.dark,
+                        onTap: () => setModalState(() => language = 'Tiếng Việt'),
+                      ),
+                      const SizedBox(height: 16),
+                      Text(
+                        t('signup.purposeMultiHint'),
+                        style: base.copyWith(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          color: c.textMuted,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      for (final key in _purposeOptionKeys) ...[
+                        _PurposePickCard(
+                          title: t('signup.purpose.$key'),
+                          icon: _purposeIcon(key),
+                          selected: selectedGoals.contains(key),
+                          isDark: Theme.of(sheetContext).brightness == Brightness.dark,
+                          onTap: () {
+                            setModalState(() {
+                              if (selectedGoals.contains(key)) {
+                                selectedGoals.remove(key);
+                              } else {
+                                selectedGoals.add(key);
+                              }
+                            });
+                          },
+                        ),
+                        const SizedBox(height: 10),
+                      ],
+                      if (localError != null)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 10),
+                          child: Text(
+                            localError!,
+                            style: base.copyWith(
+                              color: AppColors.error,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      FilledButton(
+                        onPressed: saving
+                            ? null
+                            : () async {
+                                final name = displayNameController.text.trim();
+                                if (name.isEmpty) {
+                                  setModalState(
+                                    () => localError = t('signup.valUsername'),
+                                  );
+                                  return;
+                                }
+                                if (selectedGoals.isEmpty) {
+                                  setModalState(
+                                    () => localError = t('signup.valPickPurposes'),
+                                  );
+                                  return;
+                                }
+                                setModalState(() {
+                                  localError = null;
+                                  saving = true;
+                                });
+                                try {
+                                  await user.updateDisplayName(name);
+                                  final goals = selectedGoals.toList()..sort();
+                                  await _firestoreService.updateUserProfile(
+                                    user.uid,
+                                    {
+                                      'displayName': name,
+                                      'language': language,
+                                      'practiceGoals': goals,
+                                    },
+                                  );
+                                  appLanguage.setByDisplayName(language);
+                                  await _setFirstLoginSetupCompleted(user.uid, true);
+                                  await _setFirstLoginSetupPending(user.uid, false);
+                                  if (sheetContext.mounted) {
+                                    Navigator.of(sheetContext).pop();
+                                  }
+                                } catch (e) {
+                                  setModalState(() => localError = e.toString());
+                                } finally {
+                                  if (sheetContext.mounted) {
+                                    setModalState(() => saving = false);
+                                  }
+                                }
+                              },
+                        child: Text(
+                          saving ? 'Loading...' : t('login.continue'),
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              },
+            ),
+          );
+        },
+      );
+    } finally {
+      displayNameController.dispose();
     }
   }
 
@@ -318,15 +536,6 @@ class _LoginScreenState extends State<LoginScreen> {
         break;
       case 1:
         _signUpContinueFromPassword();
-        break;
-      case 2:
-        _signUpContinueFromUsername();
-        break;
-      case 3:
-        _signUpContinueFromLanguage();
-        break;
-      case 4:
-        _signUpContinueFromPurpose();
         break;
     }
   }
@@ -373,12 +582,6 @@ class _LoginScreenState extends State<LoginScreen> {
         return t('login.signUpHeadline');
       case 1:
         return t('signup.createPasswordTitle');
-      case 2:
-        return t('signup.usernameTitle');
-      case 3:
-        return t('signup.languageTitle');
-      case 4:
-        return t('signup.purposeTitle');
       default:
         return '';
     }
@@ -389,7 +592,7 @@ class _LoginScreenState extends State<LoginScreen> {
     if (_isLogin) {
       return _step == 0 ? t('login.continue') : t('login.signIn');
     }
-    return _step == 4 ? t('login.createAccount') : t('login.continue');
+    return _step == 1 ? t('login.createAccount') : t('login.continue');
   }
 
   @override
@@ -398,101 +601,123 @@ class _LoginScreenState extends State<LoginScreen> {
     final c = context.colors;
     final base = GoogleFonts.plusJakartaSans();
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final compact = MediaQuery.sizeOf(context).width < 370;
 
     return Scaffold(
       backgroundColor: _pageBg(context),
       body: SafeArea(
         bottom: false,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(4, 4, 8, 8),
-              child: Row(
-                children: [
-                  IconButton(
-                    onPressed: _goBack,
-                    icon: Icon(
-                      Icons.arrow_back_ios_new_rounded,
-                      size: 20,
-                      color: c.textHeading,
-                    ),
-                  ),
-                  const Spacer(),
-                  const _LoginThemeToggle(),
-                ],
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            return SingleChildScrollView(
+              physics: const BouncingScrollPhysics(),
+              padding: EdgeInsets.fromLTRB(
+                0,
+                0,
+                0,
+                16 + MediaQuery.paddingOf(context).bottom,
               ),
-            ),
-            Expanded(
-              child: SingleChildScrollView(
-                physics: const BouncingScrollPhysics(),
-                padding: const EdgeInsets.fromLTRB(24, 0, 24, 16),
+              child: ConstrainedBox(
+                constraints: BoxConstraints(minHeight: constraints.maxHeight),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    if (_step == 0) ...[
-                      Center(child: _LogoHelloRow(textColor: c.textHeading)),
-                      const SizedBox(height: 28),
-                    ],
-                    Text(
-                      _titleForStep(),
-                      style: GoogleFonts.plusJakartaSans(
-                        fontSize: 26,
-                        fontWeight: FontWeight.w800,
-                        height: 1.25,
-                        letterSpacing: -0.35,
-                        color: c.textHeading,
-                      ),
-                    ),
-                    const SizedBox(height: 28),
-                    ..._buildStepContent(context, base, c, isDark),
-                  ],
-                ),
-              ),
-            ),
-            Padding(
-              padding: EdgeInsets.fromLTRB(24, 0, 24, 16 + MediaQuery.paddingOf(context).bottom),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  if (_errorMessage != null) ...[
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 14,
-                        vertical: 12,
-                      ),
-                      margin: const EdgeInsets.only(bottom: 14),
-                      decoration: BoxDecoration(
-                        color: AppColors.error.withValues(alpha: 0.08),
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(
-                          color: AppColors.error.withValues(alpha: 0.25),
-                        ),
-                      ),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(4, 4, 8, 8),
                       child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Icon(
-                            Icons.error_outline_rounded,
-                            color: AppColors.error,
-                            size: 20,
-                          ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: Text(
-                              _errorMessage!,
-                              style: base.copyWith(
-                                fontSize: 13,
-                                fontWeight: FontWeight.w600,
-                                color: AppColors.error,
-                              ),
+                          IconButton(
+                            onPressed: _goBack,
+                            icon: Icon(
+                              Icons.arrow_back_ios_new_rounded,
+                              size: 20,
+                              color: c.textHeading,
                             ),
                           ),
+                          const Spacer(),
+                          const _LoginThemeToggle(),
                         ],
                       ),
                     ),
-                  ],
+                    Padding(
+                      padding: EdgeInsets.fromLTRB(compact ? 18 : 24, 0, compact ? 18 : 24, 0),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          if (_step == 0) ...[
+                            Center(child: _LogoHelloRow(textColor: c.textHeading)),
+                            SizedBox(height: compact ? 20 : 28),
+                          ],
+                          Text(
+                            _titleForStep(),
+                            style: GoogleFonts.plusJakartaSans(
+                              fontSize: compact ? 23 : 26,
+                              fontWeight: FontWeight.w800,
+                              height: 1.25,
+                              letterSpacing: -0.35,
+                              color: c.textHeading,
+                            ),
+                          ),
+                          SizedBox(height: compact ? 20 : 28),
+                          ..._buildStepContent(context, base, c),
+                        ],
+                      ),
+                    ),
+                    SizedBox(height: compact ? 18 : 28),
+                    Padding(
+                      padding: EdgeInsets.fromLTRB(compact ? 18 : 24, 0, compact ? 18 : 24, 0),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                  AnimatedContainer(
+                    duration: const Duration(milliseconds: 180),
+                    curve: Curves.easeOutCubic,
+                    constraints: const BoxConstraints(minHeight: 56),
+                    margin: const EdgeInsets.only(bottom: 14),
+                    padding: _errorMessage == null
+                        ? EdgeInsets.zero
+                        : const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 8,
+                          ),
+                    decoration: BoxDecoration(
+                      color: _errorMessage == null
+                          ? Colors.transparent
+                          : AppColors.error.withValues(alpha: 0.08),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: _errorMessage == null
+                            ? Colors.transparent
+                            : AppColors.error.withValues(alpha: 0.25),
+                      ),
+                    ),
+                    child: _errorMessage == null
+                        ? null
+                        : Row(
+                            crossAxisAlignment: CrossAxisAlignment.center,
+                            children: [
+                              Icon(
+                                Icons.error_outline_rounded,
+                                color: AppColors.error,
+                                size: 20,
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Text(
+                                  _errorMessage!,
+                                  maxLines: 3,
+                                  overflow: TextOverflow.fade,
+                                  style: base.copyWith(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w600,
+                                    color: AppColors.error,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                  ),
                   _PrimaryBlueButton(
                     label: _primaryLabel(),
                     loading: _isLoading,
@@ -522,7 +747,6 @@ class _LoginScreenState extends State<LoginScreen> {
                           _step = 0;
                           _errorMessage = null;
                           _passwordController.clear();
-                          _usernameController.clear();
                           _selectedLanguageDisplay = null;
                           _selectedPurposeKeys.clear();
                           _credentialFormKey.currentState?.reset();
@@ -549,10 +773,14 @@ class _LoginScreenState extends State<LoginScreen> {
                       ),
                     ),
                   ],
-                ],
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
               ),
-            ),
-          ],
+            );
+          },
         ),
       ),
     );
@@ -621,7 +849,6 @@ class _LoginScreenState extends State<LoginScreen> {
     BuildContext context,
     TextStyle base,
     AppColorsExtension c,
-    bool isDark,
   ) {
     final t = appLanguage.t;
 
@@ -747,105 +974,6 @@ class _LoginScreenState extends State<LoginScreen> {
               ),
             ),
           ),
-        ];
-      case 2:
-        return [
-          Text(
-            t('signup.usernameLabel'),
-            style: base.copyWith(
-              fontSize: 13,
-              fontWeight: FontWeight.w600,
-              color: c.textMuted,
-            ),
-          ),
-          const SizedBox(height: 8),
-          TextField(
-            controller: _usernameController,
-            autocorrect: false,
-            style: base.copyWith(
-              fontSize: 16,
-              fontWeight: FontWeight.w600,
-              color: c.textHeading,
-            ),
-            decoration: _filledDecoration(
-              context,
-              hint: t('signup.usernameHint'),
-              fill: _fieldFill(context),
-            ),
-          ),
-          const SizedBox(height: 12),
-          Text(
-            t('signup.usernameHelper'),
-            style: base.copyWith(
-              fontSize: 13,
-              fontWeight: FontWeight.w400,
-              color: c.textMuted,
-              height: 1.45,
-            ),
-          ),
-        ];
-      case 3:
-        return [
-          _LanguagePickCard(
-            title: t('signup.langEnglish'),
-            subtitle: 'English (US)',
-            emoji: '🇺🇸',
-            selected: _selectedLanguageDisplay == 'English (US)',
-            isDark: isDark,
-            onTap: () {
-              setState(() {
-                _selectedLanguageDisplay = 'English (US)';
-                _errorMessage = null;
-              });
-            },
-          ),
-          const SizedBox(height: 12),
-          _LanguagePickCard(
-            title: t('signup.langVietnamese'),
-            subtitle: 'Tiếng Việt',
-            emoji: '🇻🇳',
-            selected: _selectedLanguageDisplay == 'Tiếng Việt',
-            isDark: isDark,
-            onTap: () {
-              setState(() {
-                _selectedLanguageDisplay = 'Tiếng Việt';
-                _errorMessage = null;
-              });
-            },
-          ),
-        ];
-      case 4:
-        return [
-          Text(
-            t('signup.purposeMultiHint'),
-            style: base.copyWith(
-              fontSize: 14,
-              fontWeight: FontWeight.w500,
-              color: c.textMuted,
-              height: 1.45,
-            ),
-          ),
-          const SizedBox(height: 16),
-          for (var i = 0; i < _purposeOptionKeys.length; i++) ...[
-            if (i > 0) const SizedBox(height: 12),
-            _PurposePickCard(
-              title: t('signup.purpose.${_purposeOptionKeys[i]}'),
-              icon: _purposeIcon(_purposeOptionKeys[i]),
-              selected: _selectedPurposeKeys.contains(_purposeOptionKeys[i]),
-              isDark: isDark,
-              onTap: () {
-                final k = _purposeOptionKeys[i];
-                setState(() {
-                  if (_selectedPurposeKeys.contains(k)) {
-                    _selectedPurposeKeys.remove(k);
-                  } else {
-                    _selectedPurposeKeys.add(k);
-                  }
-                  _errorMessage = null;
-                });
-              },
-            ),
-          ],
         ];
       default:
         return [];
@@ -1233,50 +1361,16 @@ class _LogoHelloRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = appLanguage.t;
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Container(
-          width: 48,
-          height: 48,
-          decoration: BoxDecoration(
-            color: AppColors.onboardingBlue,
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: Stack(
-            clipBehavior: Clip.none,
-            children: [
-              Positioned(
-                left: 7,
-                top: 12,
-                child: Icon(
-                  Icons.chat_bubble_rounded,
-                  color: Colors.white.withValues(alpha: 0.82),
-                  size: 18,
-                ),
-              ),
-              Positioned(
-                right: 7,
-                bottom: 10,
-                child: const Icon(
-                  Icons.chat_bubble_rounded,
-                  color: Colors.white,
-                  size: 20,
-                ),
-              ),
-            ],
-          ),
+    return Center(
+      child: Text(
+        t('login.hello'),
+        textAlign: TextAlign.center,
+        style: GoogleFonts.plusJakartaSans(
+          fontSize: 22,
+          fontWeight: FontWeight.w800,
+          color: textColor,
         ),
-        const SizedBox(width: 14),
-        Text(
-          t('login.hello'),
-          style: GoogleFonts.plusJakartaSans(
-            fontSize: 22,
-            fontWeight: FontWeight.w800,
-            color: textColor,
-          ),
-        ),
-      ],
+      ),
     );
   }
 }

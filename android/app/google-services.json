@@ -12,7 +12,20 @@
           "package_name": "com.speechup.speechup"
         }
       },
-      "oauth_client": [],
+      "oauth_client": [
+        {
+          "client_id": "106627727476-cu2cln00o508rjo3ek89dc285bhceuma.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.speechup.speechup",
+            "certificate_hash": "bb42db80340b8107028ed5e2652cbc062eda7923"
+          }
+        },
+        {
+          "client_id": "106627727476-fj4q2rmo3tur90lel9gg9gp8c451paul.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
       "api_key": [
         {
           "current_key": "AIzaSyAtR8DKxaEc8I0eYTXnVlxO5QKwIL8ssPQ"
@@ -20,7 +33,12 @@
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": []
+          "other_platform_oauth_client": [
+            {
+              "client_id": "106627727476-fj4q2rmo3tur90lel9gg9gp8c451paul.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
         }
       }
     }

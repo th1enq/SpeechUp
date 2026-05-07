@@ -1,12 +1,16 @@
 import 'package:flutter/material.dart';
+import 'package:audioplayers/audioplayers.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../main.dart' show isFirebaseSupported;
 import '../l10n/app_language.dart';
 import '../services/speech_input_service.dart';
+import '../services/google_tts_service.dart';
 import '../theme/app_colors.dart';
 import '../services/firestore_service.dart';
 import '../models/practice_session.dart';
+import '../widgets/notifications_bell_button.dart';
 import 'analysis_screen.dart';
 
 class PracticeScreen extends StatefulWidget {
@@ -22,11 +26,13 @@ class _PracticeScreenState extends State<PracticeScreen> {
   @override
   Widget build(BuildContext context) {
     final t = appLanguage.t;
+    final compact = MediaQuery.sizeOf(context).width < 370;
+    final bottomPadding = 16 + MediaQuery.paddingOf(context).bottom;
 
     return SafeArea(
       child: SingleChildScrollView(
         physics: const BouncingScrollPhysics(),
-        padding: const EdgeInsets.fromLTRB(20, 12, 20, 28),
+        padding: EdgeInsets.fromLTRB(20, compact ? 8 : 12, 20, bottomPadding),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -35,59 +41,20 @@ class _PracticeScreenState extends State<PracticeScreen> {
               children: [
                 Row(
                   children: [
-                    Container(
-                      width: 44,
-                      height: 44,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: Colors.white,
-                        boxShadow: [
-                          BoxShadow(
-                            color: AppColors.dashboardNavy.withValues(
-                              alpha: 0.06,
-                            ),
-                            blurRadius: 12,
-                            offset: const Offset(0, 4),
-                          ),
-                        ],
-                      ),
-                      child: Icon(
-                        Icons.person_rounded,
-                        color: AppColors.onboardingBlue,
-                        size: 26,
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    Text(
-                      'SpeechUp',
-                      style: _display.copyWith(
-                        fontSize: 19,
-                        fontWeight: FontWeight.w800,
-                        color: AppColors.dashboardNavy,
-                      ),
-                    ),
+                    const SizedBox(width: 1),
                   ],
                 ),
-                IconButton(
-                  onPressed: () {},
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(
-                    minWidth: 40,
-                    minHeight: 40,
-                  ),
-                  icon: Icon(
-                    Icons.notifications_outlined,
-                    color: AppColors.dashboardNavy,
-                    size: 26,
-                  ),
+                NotificationsBellButton(
+                  iconColor: AppColors.dashboardNavy,
+                  iconSize: 26,
                 ),
               ],
             ),
-            const SizedBox(height: 22),
+            SizedBox(height: compact ? 16 : 22),
             Text(
               t('practice.title'),
               style: _display.copyWith(
-                fontSize: 30,
+                fontSize: compact ? 26 : 30,
                 fontWeight: FontWeight.w800,
                 color: AppColors.dashboardNavy,
                 height: 1.15,
@@ -97,13 +64,13 @@ class _PracticeScreenState extends State<PracticeScreen> {
             Text(
               t('practice.subtitle'),
               style: _display.copyWith(
-                fontSize: 15,
+                fontSize: compact ? 14 : 15,
                 fontWeight: FontWeight.w500,
                 color: AppColors.dashboardTextMuted,
                 height: 1.45,
               ),
             ),
-            const SizedBox(height: 24),
+            SizedBox(height: compact ? 18 : 24),
             _PracticeExerciseCard(
               variant: _ExerciseVisual.readSentence,
               title: t('practice.readTitle'),
@@ -503,19 +470,33 @@ class _RecordingScreen extends StatefulWidget {
 
 class _RecordingScreenState extends State<_RecordingScreen> {
   late final SpeechInputService _speechService;
+  final GoogleTtsService _ttsService = GoogleTtsService();
+  final AudioPlayer _ttsPlayer = AudioPlayer();
   bool _isSubmitting = false;
+  bool _isTtsLoading = false;
+  bool _isTtsPlaying = false;
+  bool _ttsAutoPlayed = false;
 
   @override
   void initState() {
     super.initState();
     _speechService = SpeechInputService()..addListener(_handleSpeechUpdate);
+    _ttsPlayer.onPlayerComplete.listen((_) {
+      if (!mounted) return;
+      setState(() => _isTtsPlaying = false);
+    });
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (widget.content.trim().isNotEmpty && !_ttsAutoPlayed) {
+        _ttsAutoPlayed = true;
+        _speakPromptText();
+      }
       _startListening();
     });
   }
 
   @override
   void dispose() {
+    _ttsPlayer.dispose();
     _speechService.removeListener(_handleSpeechUpdate);
     super.dispose();
   }
@@ -523,6 +504,7 @@ class _RecordingScreenState extends State<_RecordingScreen> {
   @override
   Widget build(BuildContext context) {
     final display = GoogleFonts.plusJakartaSans();
+    final compact = MediaQuery.sizeOf(context).width < 370;
     final transcript = _speechService.recognizedText;
     final durationSeconds = _speechService.elapsed.inSeconds;
     final wordsPerMinute = _calculateWordsPerMinute(
@@ -543,22 +525,18 @@ class _RecordingScreenState extends State<_RecordingScreen> {
         ),
         child: SafeArea(
           child: SingleChildScrollView(
-            padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+            padding: EdgeInsets.fromLTRB(
+              20,
+              compact ? 6 : 8,
+              20,
+              16 + MediaQuery.paddingOf(context).bottom,
+            ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 Row(
                   crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
-                    Text(
-                      'SpeechUp',
-                      style: display.copyWith(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w800,
-                        color: AppColors.dashboardNavy,
-                      ),
-                    ),
-                    const SizedBox(width: 10),
                     Container(
                       width: 8,
                       height: 8,
@@ -601,14 +579,14 @@ class _RecordingScreenState extends State<_RecordingScreen> {
                     ),
                   ],
                 ),
-                const SizedBox(height: 28),
+                SizedBox(height: compact ? 20 : 28),
                 Text(
                   _speechService.isListening
                       ? appLanguage.t('practice.listening')
                       : appLanguage.t('practice.tapToStart'),
                   textAlign: TextAlign.center,
                   style: display.copyWith(
-                    fontSize: 26,
+                    fontSize: compact ? 22 : 26,
                     fontWeight: FontWeight.w800,
                     color: AppColors.dashboardNavy,
                     height: 1.2,
@@ -626,18 +604,48 @@ class _RecordingScreenState extends State<_RecordingScreen> {
                       height: 1.45,
                     ),
                   ),
+                  const SizedBox(height: 10),
+                  Center(
+                    child: TextButton.icon(
+                      onPressed: _isTtsLoading
+                          ? null
+                          : () async {
+                              if (_isTtsPlaying) {
+                                await _stopPromptAudio();
+                              } else {
+                                await _speakPromptText();
+                              }
+                            },
+                      icon: _isTtsLoading
+                          ? const SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : Icon(
+                              _isTtsPlaying
+                                  ? Icons.stop_circle_outlined
+                                  : Icons.volume_up_rounded,
+                            ),
+                      label: Text(
+                        _isTtsPlaying
+                            ? 'Stop voice'
+                            : 'Listen with Google TTS',
+                      ),
+                    ),
+                  ),
                 ],
-                const SizedBox(height: 32),
+                SizedBox(height: compact ? 24 : 32),
                 Center(
                   child: _RecordingWaveform(
                     heights: _buildWaveHeights(_effectiveSoundLevel),
                   ),
                 ),
-                const SizedBox(height: 28),
+                SizedBox(height: compact ? 20 : 28),
                 Center(
                   child: Container(
-                    width: 120,
-                    height: 120,
+                    width: compact ? 102 : 120,
+                    height: compact ? 102 : 120,
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
                       gradient: AppColors.recordingMicGradient,
@@ -652,43 +660,77 @@ class _RecordingScreenState extends State<_RecordingScreen> {
                         ),
                       ],
                     ),
-                    child: const Icon(
+                    child: Icon(
                       Icons.mic_rounded,
                       color: Colors.white,
-                      size: 52,
+                      size: compact ? 44 : 52,
                     ),
                   ),
                 ),
-                const SizedBox(height: 28),
-                Row(
-                  children: [
-                    Expanded(
-                      child: _RecordingMetricCard(
-                        icon: Icons.speed_rounded,
-                        label: appLanguage.t('practice.metricSpeed'),
-                        value: wordsPerMinute > 0
-                            ? '$wordsPerMinute ${appLanguage.t('progress.wpm')}'
-                            : '--',
+                SizedBox(height: compact ? 20 : 28),
+                if (compact)
+                  Wrap(
+                    spacing: 10,
+                    runSpacing: 10,
+                    children: [
+                      SizedBox(
+                        width: (MediaQuery.sizeOf(context).width - 60) / 2,
+                        child: _RecordingMetricCard(
+                          icon: Icons.speed_rounded,
+                          label: appLanguage.t('practice.metricSpeed'),
+                          value: wordsPerMinute > 0
+                              ? '$wordsPerMinute ${appLanguage.t('progress.wpm')}'
+                              : '--',
+                        ),
                       ),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: _RecordingMetricCard(
-                        icon: Icons.pause_rounded,
-                        label: appLanguage.t('practice.metricPauses'),
-                        value: pausesLabel,
+                      SizedBox(
+                        width: (MediaQuery.sizeOf(context).width - 60) / 2,
+                        child: _RecordingMetricCard(
+                          icon: Icons.pause_rounded,
+                          label: appLanguage.t('practice.metricPauses'),
+                          value: pausesLabel,
+                        ),
                       ),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: _RecordingMetricCard(
-                        icon: Icons.graphic_eq_rounded,
-                        label: appLanguage.t('practice.metricClarity'),
-                        value: '$clarity%',
+                      SizedBox(
+                        width: (MediaQuery.sizeOf(context).width - 60) / 2,
+                        child: _RecordingMetricCard(
+                          icon: Icons.graphic_eq_rounded,
+                          label: appLanguage.t('practice.metricClarity'),
+                          value: '$clarity%',
+                        ),
                       ),
-                    ),
-                  ],
-                ),
+                    ],
+                  )
+                else
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _RecordingMetricCard(
+                          icon: Icons.speed_rounded,
+                          label: appLanguage.t('practice.metricSpeed'),
+                          value: wordsPerMinute > 0
+                              ? '$wordsPerMinute ${appLanguage.t('progress.wpm')}'
+                              : '--',
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: _RecordingMetricCard(
+                          icon: Icons.pause_rounded,
+                          label: appLanguage.t('practice.metricPauses'),
+                          value: pausesLabel,
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: _RecordingMetricCard(
+                          icon: Icons.graphic_eq_rounded,
+                          label: appLanguage.t('practice.metricClarity'),
+                          value: '$clarity%',
+                        ),
+                      ),
+                    ],
+                  ),
                 const SizedBox(height: 22),
                 Container(
                   width: double.infinity,
@@ -953,8 +995,50 @@ class _RecordingScreenState extends State<_RecordingScreen> {
   }
 
   void _closeScreen() {
+    _stopPromptAudio();
     _speechService.cancelListening();
     Navigator.of(context).pop();
+  }
+
+  Future<void> _speakPromptText() async {
+    final text = widget.content.trim();
+    if (text.isEmpty) return;
+    if (!_ttsService.isConfigured) {
+      _showSnackBar(
+        'Missing Google TTS key. Add --dart-define=GOOGLE_TTS_API_KEY=YOUR_KEY',
+      );
+      return;
+    }
+
+    setState(() {
+      _isTtsLoading = true;
+      _isTtsPlaying = false;
+    });
+    try {
+      final ttsConfig = await _resolveVietnameseTtsConfig();
+      final bytes = await _ttsService.synthesize(
+        text: text,
+        languageCode: 'vi-VN',
+        voiceName: ttsConfig.voiceName,
+        speakingRate: ttsConfig.speed,
+      );
+      await _ttsPlayer.stop();
+      await _ttsPlayer.play(BytesSource(bytes), volume: 1.0);
+      if (!mounted) return;
+      setState(() => _isTtsPlaying = true);
+    } catch (e) {
+      _showSnackBar('Google TTS error: $e');
+    } finally {
+      if (mounted) {
+        setState(() => _isTtsLoading = false);
+      }
+    }
+  }
+
+  Future<void> _stopPromptAudio() async {
+    await _ttsPlayer.stop();
+    if (!mounted) return;
+    setState(() => _isTtsPlaying = false);
   }
 
   void _showSnackBar(String message) {
@@ -964,7 +1048,28 @@ class _RecordingScreenState extends State<_RecordingScreen> {
   }
 
   String _localeIdForApp() {
-    return appLanguage.locale.languageCode == 'vi' ? 'vi_VN' : 'en_US';
+    // Speech-to-text is forced to Vietnamese for speaking practice.
+    return 'vi_VN';
+  }
+
+  Future<({String voiceName, double speed})> _resolveVietnameseTtsConfig() async {
+    final prefs = await SharedPreferences.getInstance();
+    final tone = (prefs.getString('profile_ai_voice_tone') ?? 'Balanced')
+        .toLowerCase();
+    final speed = (prefs.getDouble('profile_ai_voice_speed') ?? 1.0).clamp(
+      0.8,
+      1.3,
+    );
+
+    String voiceName;
+    if (tone.contains('calm')) {
+      voiceName = 'vi-VN-Standard-B';
+    } else if (tone.contains('energetic')) {
+      voiceName = 'vi-VN-Standard-D';
+    } else {
+      voiceName = 'vi-VN-Standard-A';
+    }
+    return (voiceName: voiceName, speed: speed);
   }
 
   int _calculateWordsPerMinute(String transcript, int durationSeconds) {

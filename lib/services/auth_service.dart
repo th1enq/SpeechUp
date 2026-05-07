@@ -75,6 +75,39 @@ class AuthService {
     }
   }
 
+  /// Fallback probe when provider lookup is hidden by Firebase settings.
+  /// Returns:
+  /// - true: email likely exists
+  /// - false: email likely not found
+  /// - null: cannot determine
+  Future<bool?> probeEmailExistsWithDummyPassword(String email) async {
+    final probePassword = '__probe__${DateTime.now().millisecondsSinceEpoch}';
+    try {
+      final credential = await _auth.signInWithEmailAndPassword(
+        email: email.trim(),
+        password: probePassword,
+      );
+      // Extremely unlikely, but if it signs in we know account exists.
+      await credential.user?.reload();
+      await _auth.signOut();
+      return true;
+    } on FirebaseAuthException catch (e) {
+      switch (e.code) {
+        case 'user-not-found':
+          return false;
+        case 'wrong-password':
+        case 'invalid-credential':
+        case 'user-disabled':
+        case 'account-exists-with-different-credential':
+          return true;
+        default:
+          return null;
+      }
+    } catch (_) {
+      return null;
+    }
+  }
+
   /// Returns null if the user closed the Google picker without signing in.
   Future<UserCredential?> signInWithGoogle() async {
     try {

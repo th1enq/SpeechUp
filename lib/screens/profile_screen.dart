@@ -26,7 +26,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
   bool _notificationsOn = true;
   String _selectedLanguage = 'English (US)';
   String _selectedDifficulty = 'Intermediate';
-  int _mainTab = 0;
+  String _customDisplayName = '';
+  int _avatarIndex = 0;
+  String _aiVoiceTone = 'Balanced';
+  double _aiVoiceSpeed = 1.0;
 
   final AuthService _authService = AuthService();
   final FirestoreService _firestoreService = FirestoreService();
@@ -48,6 +51,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
     'Su',
   ];
 
+  static const List<({IconData icon, Color color})> _avatarOptions = [
+    (icon: Icons.person_rounded, color: Color(0xFF3B82F6)),
+    (icon: Icons.record_voice_over_rounded, color: Color(0xFF8B5CF6)),
+    (icon: Icons.mic_rounded, color: Color(0xFF10B981)),
+    (icon: Icons.star_rounded, color: Color(0xFFF59E0B)),
+    (icon: Icons.favorite_rounded, color: Color(0xFFEF4444)),
+    (icon: Icons.sentiment_satisfied_rounded, color: Color(0xFF06B6D4)),
+  ];
+
   @override
   void initState() {
     super.initState();
@@ -59,12 +71,22 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final savedLanguage = prefs.getString('profile_language');
     final savedDifficulty = prefs.getString('profile_difficulty');
     final savedNotifications = prefs.getBool('profile_notifications_enabled');
+    final savedDisplayName = prefs.getString('profile_display_name');
+    final savedAvatarIndex = prefs.getInt('profile_avatar_index');
+    final savedAiVoiceTone = prefs.getString('profile_ai_voice_tone');
+    final savedAiVoiceSpeed = prefs.getDouble('profile_ai_voice_speed');
 
     if (mounted) {
       setState(() {
         _selectedLanguage = savedLanguage ?? appLanguage.currentLanguageDisplayName;
         _selectedDifficulty = savedDifficulty ?? _selectedDifficulty;
         _notificationsOn = savedNotifications ?? _notificationsOn;
+        _customDisplayName = savedDisplayName ?? _customDisplayName;
+        _avatarIndex =
+            ((savedAvatarIndex ?? 0) % _avatarOptions.length + _avatarOptions.length) %
+                _avatarOptions.length;
+        _aiVoiceTone = savedAiVoiceTone ?? _aiVoiceTone;
+        _aiVoiceSpeed = savedAiVoiceSpeed ?? _aiVoiceSpeed;
       });
     }
     appLanguage.setByDisplayName(_selectedLanguage);
@@ -81,7 +103,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
               _selectedLanguage = profile.language;
               _selectedDifficulty = profile.difficulty;
               _notificationsOn = profile.notificationsEnabled;
+              _customDisplayName = profile.displayName.isNotEmpty
+                  ? profile.displayName
+                  : _customDisplayName;
               appLanguage.setByDisplayName(_selectedLanguage);
+            } else {
+              _customDisplayName = _displayName();
             }
           });
         }
@@ -225,6 +252,204 @@ class _ProfileScreenState extends State<ProfileScreen> {
         );
       },
     );
+  }
+
+  Future<void> _pickAvatar() async {
+    final c = context.colors;
+    final selected = await showModalBottomSheet<int>(
+      context: context,
+      showDragHandle: true,
+      backgroundColor: c.cardBg,
+      builder: (context) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 20),
+            child: Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              children: [
+                for (var i = 0; i < _avatarOptions.length; i++)
+                  InkWell(
+                    onTap: () => Navigator.of(context).pop(i),
+                    borderRadius: BorderRadius.circular(999),
+                    child: CircleAvatar(
+                      radius: 28,
+                      backgroundColor:
+                          _avatarOptions[i].color.withValues(alpha: 0.15),
+                      child: Icon(
+                        _avatarOptions[i].icon,
+                        color: _avatarOptions[i].color,
+                        size: 28,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+    if (selected == null) return;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt('profile_avatar_index', selected);
+    if (mounted) {
+      setState(() => _avatarIndex = selected);
+    }
+  }
+
+  Future<void> _editDisplayName() async {
+    final controller = TextEditingController(text: _customDisplayName);
+    final c = context.colors;
+    final saved = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          backgroundColor: c.cardBg,
+          title: Text(appLanguage.t('login.fullName')),
+          content: TextField(
+            controller: controller,
+            autofocus: true,
+            textInputAction: TextInputAction.done,
+            decoration: const InputDecoration(hintText: 'Your name'),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: Text(appLanguage.t('common.cancel')),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: Text(appLanguage.t('common.start')),
+            ),
+          ],
+        );
+      },
+    );
+    if (saved != true) return;
+    final nextName = controller.text.trim();
+    if (nextName.isEmpty) return;
+
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('profile_display_name', nextName);
+    if (isFirebaseSupported) {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user != null) {
+        await user.updateDisplayName(nextName);
+        await _firestoreService.updateUserProfile(user.uid, {
+          'displayName': nextName,
+        });
+      }
+    }
+    if (mounted) {
+      setState(() => _customDisplayName = nextName);
+    }
+  }
+
+  Future<void> _openAiVoiceSettings() async {
+    final c = context.colors;
+    String tempTone = _aiVoiceTone;
+    double tempSpeed = _aiVoiceSpeed;
+    final saved = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      backgroundColor: c.cardBg,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (context) {
+        final base = GoogleFonts.plusJakartaSans();
+        return StatefulBuilder(
+          builder: (context, setLocal) {
+            return SafeArea(
+              top: false,
+              child: Padding(
+                padding: EdgeInsets.only(
+                  left: 16,
+                  right: 16,
+                  bottom: MediaQuery.paddingOf(context).bottom + 16,
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Cài đặt giọng nói AI',
+                      style: base.copyWith(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w900,
+                        color: c.textHeading,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    Text(
+                      'Chọn phong cách giọng',
+                      style: base.copyWith(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        color: c.textMuted,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        for (final tone in const [
+                          'Calm',
+                          'Balanced',
+                          'Energetic',
+                        ])
+                          ChoiceChip(
+                            label: Text(tone),
+                            selected: tempTone == tone,
+                            onSelected: (_) => setLocal(() => tempTone = tone),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 14),
+                    Text(
+                      'Tốc độ phản hồi: ${tempSpeed.toStringAsFixed(1)}x',
+                      style: base.copyWith(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        color: c.textMuted,
+                      ),
+                    ),
+                    Slider(
+                      value: tempSpeed,
+                      min: 0.8,
+                      max: 1.3,
+                      divisions: 5,
+                      onChanged: (v) => setLocal(() => tempSpeed = v),
+                    ),
+                    const SizedBox(height: 8),
+                    SizedBox(
+                      width: double.infinity,
+                      height: 48,
+                      child: FilledButton(
+                        onPressed: () => Navigator.of(context).pop(true),
+                        child: const Text('Lưu'),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+    if (saved != true) return;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('profile_ai_voice_tone', tempTone);
+    await prefs.setDouble('profile_ai_voice_speed', tempSpeed);
+    if (mounted) {
+      setState(() {
+        _aiVoiceTone = tempTone;
+        _aiVoiceSpeed = tempSpeed;
+      });
+    }
   }
 
   void _openSettingsSheet() {
@@ -393,16 +618,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final base = GoogleFonts.plusJakartaSans();
     final t = appLanguage.t;
     final c = context.colors;
+    final themeNotifier = context.watch<ThemeNotifier>();
     final isDark = Theme.of(context).brightness == Brightness.dark;
-
-    final sessions = _profile?.totalSessions ?? 0;
-    final streak = _profile?.streakDays ?? 0;
-    final avgScore = (_profile?.averageScore ?? 0).clamp(0, 100);
-    final progressPct = avgScore;
-    final filledStudyDots = math.min(streak, 7);
-    final activeDayCount = streak > 0 ? streak : (sessions > 0 ? 1 : 0);
+    final compact = MediaQuery.sizeOf(context).width < 370;
+    final bottomContentPadding =
+        kBottomNavigationBarHeight + MediaQuery.paddingOf(context).bottom + 20;
 
     final email = isFirebaseSupported ? FirebaseAuth.instance.currentUser?.email : null;
+    final avatar = _avatarOptions[_avatarIndex];
 
     return Scaffold(
       backgroundColor: c.scaffoldBg,
@@ -414,7 +637,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
             20,
             8,
             20,
-            24 + MediaQuery.paddingOf(context).bottom + 72,
+            bottomContentPadding,
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -425,342 +648,226 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     child: Text(
                       t('profile.screenTitle'),
                       style: base.copyWith(
-                        fontSize: 28,
-                        fontWeight: FontWeight.w800,
-                        letterSpacing: -0.5,
+                        fontSize: compact ? 22 : 26,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: -0.4,
                         color: c.textHeading,
                       ),
                     ),
                   ),
-                  IconButton(
-                    onPressed: () {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text(t('profile.friends')),
-                          behavior: SnackBarBehavior.floating,
-                        ),
-                      );
-                    },
-                    icon: Icon(Icons.person_add_outlined, color: c.textHeading, size: 26),
-                  ),
-                  IconButton(
-                    onPressed: _openSettingsSheet,
-                    icon: Icon(Icons.settings_outlined, color: c.textHeading, size: 26),
-                  ),
                 ],
               ),
-              const SizedBox(height: 20),
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  CircleAvatar(
-                    radius: 36,
-                    backgroundColor: c.accentBlue.withValues(alpha: 0.15),
-                    child: Icon(Icons.person_rounded, color: c.accentBlue, size: 40),
-                  ),
-                  const SizedBox(width: 14),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          _displayName(),
-                          style: base.copyWith(
-                            fontSize: 20,
-                            fontWeight: FontWeight.w800,
-                            color: c.textHeading,
-                          ),
-                        ),
-                        const SizedBox(height: 6),
-                        Row(
-                          children: [
-                            Icon(Icons.location_on_outlined, size: 16, color: c.textMuted),
-                            const SizedBox(width: 4),
-                            Expanded(
-                              child: Text(
-                                email ?? t('profile.learnerSubtitle'),
-                                style: base.copyWith(
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w500,
+              const SizedBox(height: 14),
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: c.cardBg,
+                  borderRadius: BorderRadius.circular(26),
+                  border: Border.all(color: c.borderColor.withValues(alpha: 0.7)),
+                  boxShadow: [
+                    BoxShadow(
+                      color: c.shadowColor.withValues(alpha: 0.10),
+                      blurRadius: 18,
+                      offset: const Offset(0, 8),
+                    ),
+                  ],
+                ),
+                child: Row(
+                  children: [
+                    InkWell(
+                      onTap: _pickAvatar,
+                      borderRadius: BorderRadius.circular(999),
+                      child: CircleAvatar(
+                        radius: 30,
+                        backgroundColor: avatar.color.withValues(alpha: 0.15),
+                        child: Icon(avatar.icon, color: avatar.color, size: 34),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          InkWell(
+                            onTap: _editDisplayName,
+                            borderRadius: BorderRadius.circular(8),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    _customDisplayName.isEmpty
+                                        ? _displayName()
+                                        : _customDisplayName,
+                                    style: base.copyWith(
+                                      fontSize: 18,
+                                      fontWeight: FontWeight.w900,
+                                      color: c.textHeading,
+                                      height: 1.1,
+                                    ),
+                                  ),
+                                ),
+                                Icon(
+                                  Icons.edit_rounded,
+                                  size: 16,
                                   color: c.textMuted,
                                 ),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
+                              ],
                             ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  _DifficultyChip(label: _selectedDifficulty, isDark: isDark),
-                ],
-              ),
-              const SizedBox(height: 22),
-              InkWell(
-                onTap: () {},
-                borderRadius: BorderRadius.circular(12),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 4),
-                  child: Row(
-                    children: [
-                      Text(
-                        t('profile.friends'),
-                        style: base.copyWith(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w700,
-                          color: c.textHeading,
-                        ),
-                      ),
-                      const Spacer(),
-                      Text(
-                        '0',
-                        style: base.copyWith(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w800,
-                          color: AppColors.onboardingBlue,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              const SizedBox(height: 8),
-              _ProfileSegmentedTabs(
-                isDark: isDark,
-                selectedIndex: _mainTab,
-                labels: [
-                  t('profile.tabProgress'),
-                  t('profile.tabPractice'),
-                  t('profile.tabInsights'),
-                ],
-                onChanged: (i) => setState(() => _mainTab = i),
-              ),
-              const SizedBox(height: 20),
-              if (_mainTab == 0) ...[
-                Row(
-                  children: [
-                    Text(_languageEmoji(), style: const TextStyle(fontSize: 22)),
-                    const SizedBox(width: 8),
-                    Text(
-                      _languageShortLabel(),
-                      style: base.copyWith(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w700,
-                        color: c.textHeading,
-                      ),
-                    ),
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 10),
-                      child: Text(
-                        '—',
-                        style: base.copyWith(color: c.textMuted),
-                      ),
-                    ),
-                    Expanded(
-                      child: Text(
-                        t('profile.languageLine'),
-                        style: base.copyWith(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w600,
-                          color: c.textMuted,
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 28),
-                Center(
-                  child: _SpeechRingGauge(
-                    progress: progressPct / 100.0,
-                    centerLabel: '$progressPct%',
-                    caption: t('profile.speakingProgressLabel'),
-                    base: base,
-                    c: c,
-                  ),
-                ),
-                const SizedBox(height: 28),
-                Row(
-                  children: [
-                    Expanded(
-                      child: _CompactStatTile(
-                        base: base,
-                        c: c,
-                        icon: Icons.bar_chart_rounded,
-                        title: '$sessions',
-                        subtitle: t('profile.sessionsPracticed'),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: _CompactStatTile(
-                        base: base,
-                        c: c,
-                        icon: Icons.verified_outlined,
-                        title: '${avgScore > 0 ? 1 : 0}',
-                        subtitle: t('profile.milestones'),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 28),
-                Text(
-                  t('profile.studyDays'),
-                  style: base.copyWith(
-                    fontSize: 17,
-                    fontWeight: FontWeight.w800,
-                    color: c.textHeading,
-                  ),
-                ),
-                const SizedBox(height: 14),
-                _StudyDaysRow(
-                  labels: _weekdayShort,
-                  filledCount: filledStudyDots,
-                  isDark: isDark,
-                  c: c,
-                  base: base,
-                ),
-                const SizedBox(height: 14),
-                Row(
-                  children: [
-                    Icon(Icons.calendar_today_outlined, size: 18, color: c.textMuted),
-                    const SizedBox(width: 8),
-                    Text(
-                      t('profile.activeDays', params: {'n': '$activeDayCount'}),
-                      style: base.copyWith(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                        color: c.textMuted,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 28),
-                Text(
-                  t('profile.highlights'),
-                  style: base.copyWith(
-                    fontSize: 17,
-                    fontWeight: FontWeight.w800,
-                    color: c.textHeading,
-                  ),
-                ),
-                const SizedBox(height: 14),
-                Row(
-                  children: [
-                    Expanded(
-                      child: _RatingPill(
-                        base: base,
-                        c: c,
-                        icon: Icons.forum_outlined,
-                        text: t('profile.highlightSessions', params: {'n': '$sessions'}),
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: _RatingPill(
-                        base: base,
-                        c: c,
-                        icon: Icons.favorite_border_rounded,
-                        text: t('profile.highlightStreak', params: {'n': '$streak'}),
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: _RatingPill(
-                        base: base,
-                        c: c,
-                        icon: Icons.star_border_rounded,
-                        text: t('profile.highlightScore', params: {'n': '$avgScore'}),
-                      ),
-                    ),
-                  ],
-                ),
-              ] else if (_mainTab == 1) ...[
-                Text(
-                  t('profile.exercisesTabBody'),
-                  style: base.copyWith(
-                    fontSize: 15,
-                    height: 1.45,
-                    fontWeight: FontWeight.w500,
-                    color: c.textMuted,
-                  ),
-                ),
-                const SizedBox(height: 20),
-                Row(
-                  children: [
-                    Expanded(
-                      child: _CompactStatTile(
-                        base: base,
-                        c: c,
-                        icon: Icons.fitness_center_rounded,
-                        title: '$sessions',
-                        subtitle: t('profile.totalSessions'),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: _CompactStatTile(
-                        base: base,
-                        c: c,
-                        icon: Icons.timer_outlined,
-                        title: (_profile?.totalSpeakingMinutes ?? 0).toStringAsFixed(0),
-                        subtitle: t('profile.speakingTime'),
-                      ),
-                    ),
-                  ],
-                ),
-              ] else ...[
-                Text(
-                  t('profile.insightsTabBody'),
-                  style: base.copyWith(
-                    fontSize: 15,
-                    height: 1.45,
-                    fontWeight: FontWeight.w500,
-                    color: c.textMuted,
-                  ),
-                ),
-                const SizedBox(height: 20),
-                Container(
-                  padding: const EdgeInsets.all(18),
-                  decoration: BoxDecoration(
-                    color: c.cardBg,
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(color: c.borderColor.withValues(alpha: 0.6)),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(Icons.insights_outlined, color: AppColors.onboardingBlue, size: 28),
-                      const SizedBox(width: 14),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              t('profile.averageScore'),
-                              style: base.copyWith(
-                                fontSize: 13,
-                                fontWeight: FontWeight.w600,
+                          ),
+                          const SizedBox(height: 6),
+                          Row(
+                            children: [
+                              Icon(
+                                Icons.mail_outline_rounded,
+                                size: 16,
                                 color: c.textMuted,
                               ),
-                            ),
-                            Text(
-                              '${_profile?.averageScore ?? 0}',
-                              style: base.copyWith(
-                                fontSize: 22,
-                                fontWeight: FontWeight.w800,
-                                color: c.textHeading,
+                              const SizedBox(width: 6),
+                              Expanded(
+                                child: Text(
+                                  email ?? t('profile.learnerSubtitle'),
+                                  style: base.copyWith(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w600,
+                                    color: c.textMuted,
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
                               ),
-                            ),
-                          ],
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Flexible(
+                      child: Align(
+                        alignment: Alignment.centerRight,
+                        child: _DifficultyChip(
+                          label: _selectedDifficulty,
+                          isDark: isDark,
                         ),
                       ),
-                    ],
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: c.cardBg,
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: c.borderColor.withValues(alpha: 0.7)),
+                ),
+                child: Column(
+                  children: [
+                    _SettingsRow(
+                      base: base,
+                      icon: Icons.dark_mode_rounded,
+                      iconColor: c.accentPurple,
+                      iconBg: c.streakPillBg,
+                      title: t('profile.theme'),
+                      subtitle: themeNotifier.isDark
+                          ? t('profile.themeOn')
+                          : t('profile.themeOff'),
+                      onTap: () => themeNotifier.toggle(),
+                      c: c,
+                      trailing: Switch.adaptive(
+                        value: themeNotifier.isDark,
+                        activeTrackColor: c.accentBlue.withValues(alpha: 0.55),
+                        activeThumbColor: Colors.white,
+                        onChanged: (_) => themeNotifier.toggle(),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    _SettingsRow(
+                      base: base,
+                      icon: Icons.tune_rounded,
+                      iconColor: c.accentBlue,
+                      iconBg: c.speedIconBg,
+                      title: 'Cài đặt giọng nói AI',
+                      subtitle:
+                          '$_aiVoiceTone • ${_aiVoiceSpeed.toStringAsFixed(1)}x',
+                      onTap: _openAiVoiceSettings,
+                      c: c,
+                    ),
+                    const SizedBox(height: 10),
+                    _SettingsRow(
+                      base: base,
+                      icon: Icons.language_rounded,
+                      iconColor: c.accentBlue,
+                      iconBg: c.speedIconBg,
+                      title: t('profile.language'),
+                      subtitle: _selectedLanguage,
+                      onTap: _pickLanguage,
+                      c: c,
+                    ),
+                    const SizedBox(height: 10),
+                    _SettingsRow(
+                      base: base,
+                      icon: Icons.psychology_outlined,
+                      iconColor: c.accentPurple,
+                      iconBg: c.fluencyIconBg,
+                      title: t('profile.speechDifficulty'),
+                      subtitle: _selectedDifficulty,
+                      onTap: _pickDifficulty,
+                      c: c,
+                    ),
+                    const SizedBox(height: 10),
+                    _SettingsRow(
+                      base: base,
+                      icon: Icons.notifications_outlined,
+                      iconColor: c.accentPurple,
+                      iconBg: c.fluencyIconBg,
+                      title: t('profile.notifications'),
+                      subtitle: _notificationsOn
+                          ? t('profile.notificationsOn')
+                          : t('profile.notificationsOff'),
+                      onTap: _toggleNotifications,
+                      c: c,
+                      trailing: Switch.adaptive(
+                        value: _notificationsOn,
+                        activeTrackColor: c.accentBlue.withValues(alpha: 0.55),
+                        activeThumbColor: Colors.white,
+                        onChanged: (_) => _toggleNotifications(),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 14),
+              SizedBox(
+                height: 52,
+                child: OutlinedButton(
+                  onPressed: () async {
+                    if (!isFirebaseSupported) {
+                      if (mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text(t('profile.firebaseOnlyLogout'))),
+                        );
+                      }
+                      return;
+                    }
+                    await _authService.signOut();
+                  },
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: c.logoutColor,
+                    side: BorderSide(color: c.borderColor),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                  ),
+                  child: Text(
+                    t('profile.logout'),
+                    style: base.copyWith(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w800,
+                    ),
                   ),
                 ),
-              ],
+              ),
             ],
           ),
         ),

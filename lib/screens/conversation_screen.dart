@@ -1,12 +1,16 @@
 import 'dart:async';
+import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../main.dart' show isFirebaseSupported;
 import '../l10n/app_language.dart';
 import '../services/speech_input_service.dart';
+import '../services/google_tts_service.dart';
 import '../theme/app_colors.dart';
 import '../widgets/shared_widgets.dart';
+import '../widgets/notifications_bell_button.dart';
 import '../services/firestore_service.dart';
 
 class ConversationScreen extends StatefulWidget {
@@ -78,11 +82,13 @@ class _ConversationScreenState extends State<ConversationScreen> {
     }
 
     final base = GoogleFonts.plusJakartaSans();
+    final compact = MediaQuery.sizeOf(context).width < 370;
+    final bottomPadding = 16 + MediaQuery.paddingOf(context).bottom;
 
     return SafeArea(
       child: SingleChildScrollView(
         physics: const BouncingScrollPhysics(),
-        padding: const EdgeInsets.fromLTRB(20, 8, 20, 28),
+        padding: EdgeInsets.fromLTRB(20, compact ? 6 : 8, 20, bottomPadding),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -91,69 +97,30 @@ class _ConversationScreenState extends State<ConversationScreen> {
               children: [
                 Row(
                   children: [
-                    Container(
-                      width: 44,
-                      height: 44,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: Colors.white,
-                        boxShadow: [
-                          BoxShadow(
-                            color: AppColors.dashboardNavy.withValues(
-                              alpha: 0.06,
-                            ),
-                            blurRadius: 12,
-                            offset: const Offset(0, 4),
-                          ),
-                        ],
-                      ),
-                      child: Icon(
-                        Icons.chat_bubble_rounded,
-                        color: AppColors.onboardingBlue,
-                        size: 24,
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    Text(
-                      'SpeechUp',
-                      style: base.copyWith(
-                        fontSize: 19,
-                        fontWeight: FontWeight.w800,
-                        color: AppColors.dashboardNavy,
-                      ),
-                    ),
+                    const SizedBox(width: 1),
                   ],
                 ),
-                IconButton(
-                  onPressed: () {},
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(
-                    minWidth: 40,
-                    minHeight: 40,
-                  ),
-                  icon: Icon(
-                    Icons.notifications_outlined,
-                    color: AppColors.dashboardNavy,
-                    size: 26,
-                  ),
+                NotificationsBellButton(
+                  iconColor: AppColors.dashboardNavy,
+                  iconSize: 26,
                 ),
               ],
             ),
-            const SizedBox(height: 22),
+            SizedBox(height: compact ? 16 : 22),
             Text(
               'Hội thoại với AI',
               style: base.copyWith(
-                fontSize: 28,
+                fontSize: compact ? 24 : 28,
                 fontWeight: FontWeight.w800,
                 color: AppColors.dashboardNavy,
                 height: 1.15,
               ),
             ),
-            const SizedBox(height: 6),
+            SizedBox(height: compact ? 4 : 6),
             Text(
               'Chọn tình huống để bắt đầu luyện tập',
               style: base.copyWith(
-                fontSize: 15,
+                fontSize: compact ? 14 : 15,
                 fontWeight: FontWeight.w500,
                 color: AppColors.dashboardTextMuted,
                 height: 1.45,
@@ -390,61 +357,68 @@ class _ConversationChatState extends State<_ConversationChat> {
   final List<_ChatMessage> _messages = [];
   bool _isTyping = false;
   bool _isUserRecording = false;
+  bool _isAiSpeaking = false;
+  int _nextTurnIndex = 0;
+  String? _currentUserPrompt;
   late final SpeechInputService _speechService;
+  final GoogleTtsService _ttsService = GoogleTtsService();
+  final AudioPlayer _ttsPlayer = AudioPlayer();
   String? _lastSpeechError;
   final ScrollController _scrollController = ScrollController();
 
-  // Simulated conversation flows
-  static const Map<String, List<List<String>>> _conversationFlows = {
+  // Scripted conversation flows (AI + User full turns).
+  static const Map<String, List<_ScriptTurn>> _conversationFlows = {
     'cafe': [
-      ['Xin chào! Chào mừng bạn đến quán cà phê. Bạn muốn dùng gì ạ?'],
-      ['Cho mình một ly cà phê sữa đá nhé.'],
-      ['Dạ vâng ạ! Bạn muốn size vừa hay lớn ạ?'],
-      ['Size vừa thôi, và cho mình thêm ít đường nhé.'],
-      [
+      _ScriptTurn.ai('Xin chào! Chào mừng bạn đến quán cà phê. Bạn muốn dùng gì ạ?'),
+      _ScriptTurn.user('Cho mình một ly cà phê sữa đá nhé.'),
+      _ScriptTurn.ai('Dạ vâng ạ! Bạn muốn size vừa hay lớn ạ?'),
+      _ScriptTurn.user('Size vừa thôi, và cho mình thêm ít đường nhé.'),
+      _ScriptTurn.ai(
         'Dạ được ạ! Bạn có muốn dùng thêm bánh ngọt không ạ? Hôm nay quán có croissant bơ mới ra lò rất thơm.',
-      ],
-      ['Nghe hấp dẫn quá, cho mình một cái croissant luôn nhé!'],
-      [
+      ),
+      _ScriptTurn.user('Nghe hấp dẫn quá, cho mình một cái croissant luôn nhé!'),
+      _ScriptTurn.ai(
         'Tuyệt vời ạ! Một cà phê sữa đá size vừa ít đường và một croissant bơ. Tổng cộng 75 nghìn ạ. Bạn thanh toán bằng tiền mặt hay chuyển khoản ạ?',
-      ],
+      ),
+      _ScriptTurn.user('Mình chuyển khoản nhé, cảm ơn bạn.'),
     ],
     'interview': [
-      [
+      _ScriptTurn.ai(
         'Chào bạn, cảm ơn bạn đã đến phỏng vấn hôm nay. Bạn có thể giới thiệu đôi chút về bản thân mình không?',
-      ],
-      [
+      ),
+      _ScriptTurn.user(
         'Dạ vâng, em xin chào. Em tên là Mai, em có 3 năm kinh nghiệm trong lĩnh vực truyền thông.',
-      ],
-      ['Rất tốt! Vậy điểm mạnh lớn nhất của bạn trong công việc là gì?'],
-      [
-        'Điểm mạnh của em là khả năng lên kế hoạch nội dung và quản lý đa nhiệm.',
-      ],
-      ['Bạn có thể chia sẻ về một dự án mà bạn tự hào nhất không?'],
+      ),
+      _ScriptTurn.ai('Rất tốt! Vậy điểm mạnh lớn nhất của bạn trong công việc là gì?'),
+      _ScriptTurn.user('Điểm mạnh của em là khả năng lên kế hoạch nội dung và quản lý đa nhiệm.'),
+      _ScriptTurn.ai('Bạn có thể chia sẻ về một dự án mà bạn tự hào nhất không?'),
+      _ScriptTurn.user(
+        'Dự án em tự hào nhất là chiến dịch ra mắt sản phẩm mới, giúp tăng 35% lượng khách hàng tiềm năng chỉ sau 2 tháng.',
+      ),
     ],
     'phone': [
-      ['Alô, xin chào! Đây là công ty ABC, tôi có thể giúp gì cho anh/chị?'],
-      [
+      _ScriptTurn.ai('Alô, xin chào! Đây là công ty ABC, tôi có thể giúp gì cho anh/chị?'),
+      _ScriptTurn.user(
         'Dạ chào anh, em là Mai từ công ty XYZ. Em gọi để trao đổi về đề xuất hợp tác mà bên em đã gửi.',
-      ],
-      [
-        'À vâng, tôi đã nhận được đề xuất. Bạn có thể tóm tắt lại các điểm chính không?',
-      ],
-      [
+      ),
+      _ScriptTurn.ai('À vâng, tôi đã nhận được đề xuất. Bạn có thể tóm tắt lại các điểm chính không?'),
+      _ScriptTurn.user(
         'Dạ vâng. Đề xuất chính là chương trình marketing liên kết, giúp tăng nhận diện thương hiệu cho cả hai bên.',
-      ],
-      ['Nghe khá thú vị. Về ngân sách dự kiến thì sao?'],
+      ),
+      _ScriptTurn.ai('Nghe khá thú vị. Về ngân sách dự kiến thì sao?'),
+      _ScriptTurn.user('Ngân sách dự kiến là 200 triệu trong 3 tháng đầu, sau đó sẽ tối ưu theo hiệu quả thực tế.'),
     ],
     'present': [
-      [
+      _ScriptTurn.ai(
         'Chào mọi người, buổi thuyết trình bắt đầu nhé. Bạn có thể bắt đầu khi sẵn sàng.',
-      ],
-      [
+      ),
+      _ScriptTurn.user(
         'Kính chào ban giám đốc, hôm nay em xin trình bày về chiến lược phát triển quý 3.',
-      ],
-      [
-        'Phần tổng quan rất rõ ràng. Bạn có thể giải thích thêm về mục tiêu doanh thu không?',
-      ],
+      ),
+      _ScriptTurn.ai('Phần tổng quan rất rõ ràng. Bạn có thể giải thích thêm về mục tiêu doanh thu không?'),
+      _ScriptTurn.user(
+        'Dạ mục tiêu doanh thu quý 3 là tăng 20% so với quý 2, tập trung vào nhóm khách hàng doanh nghiệp vừa và nhỏ.',
+      ),
     ],
   };
 
@@ -452,41 +426,62 @@ class _ConversationChatState extends State<_ConversationChat> {
   void initState() {
     super.initState();
     _speechService = SpeechInputService()..addListener(_handleSpeechUpdate);
-    // AI starts the conversation
-    _addAIMessage();
+    _ttsPlayer.onPlayerComplete.listen((_) {
+      if (!mounted) return;
+      setState(() => _isAiSpeaking = false);
+    });
+    // Start scripted conversation.
+    _pushNextAiTurn();
   }
 
-  void _addAIMessage() {
-    final flow =
-        _conversationFlows[widget.scenario.id] ?? _conversationFlows['cafe']!;
-    final aiMessages = <String>[];
-    for (int i = 0; i < flow.length; i += 2) {
-      aiMessages.add(flow[i][0]);
+  List<_ScriptTurn> get _scriptFlow =>
+      _conversationFlows[widget.scenario.id] ?? _conversationFlows['cafe']!;
+
+  void _pushNextAiTurn() {
+    if (_nextTurnIndex >= _scriptFlow.length) {
+      setState(() => _currentUserPrompt = null);
+      return;
+    }
+    final turn = _scriptFlow[_nextTurnIndex];
+    if (!turn.isAi) {
+      setState(() => _currentUserPrompt = turn.text);
+      return;
     }
 
-    final aiIndex = _messages.where((m) => !m.isUser).length;
-    if (aiIndex < aiMessages.length) {
-      setState(() => _isTyping = true);
-      Future.delayed(const Duration(milliseconds: 1500), () {
-        if (mounted) {
-          setState(() {
-            _isTyping = false;
-            _messages.add(
-              _ChatMessage(text: aiMessages[aiIndex], isUser: false),
-            );
-          });
-          _scrollToBottom();
+    setState(() => _isTyping = true);
+    Future.delayed(const Duration(milliseconds: 1200), () {
+      if (!mounted) return;
+      final aiText = _scriptFlow[_nextTurnIndex].text;
+      setState(() {
+        _isTyping = false;
+        _messages.add(_ChatMessage(text: aiText, isUser: false));
+        _nextTurnIndex++;
+        if (_nextTurnIndex < _scriptFlow.length && !_scriptFlow[_nextTurnIndex].isAi) {
+          _currentUserPrompt = _scriptFlow[_nextTurnIndex].text;
+        } else {
+          _currentUserPrompt = null;
         }
       });
-    }
+      _scrollToBottom();
+      unawaited(_speakAiMessage(aiText));
+    });
   }
 
   Future<void> _toggleRecording() async {
     if (_isTyping) return;
+    if (_currentUserPrompt == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Không còn câu mẫu để luyện ở kịch bản này.')),
+      );
+      return;
+    }
 
     if (_isUserRecording) {
       await _speechService.stopListening();
       return;
+    }
+    if (_isAiSpeaking) {
+      await _stopAiVoice();
     }
 
     if (!_speechService.isSupportedPlatform) {
@@ -542,6 +537,8 @@ class _ConversationChatState extends State<_ConversationChat> {
     _speechService
       ..removeListener(_handleSpeechUpdate)
       ..cancelListening();
+    unawaited(_stopAiVoice());
+    _ttsPlayer.dispose();
     _scrollController.dispose();
     super.dispose();
   }
@@ -592,7 +589,7 @@ class _ConversationChatState extends State<_ConversationChat> {
                   ),
                   if (_isTyping)
                     Text(
-                      'Đang trả lời...',
+                      _isAiSpeaking ? 'Đang phát giọng...' : 'Đang trả lời...',
                       style: base.copyWith(
                         fontSize: 11,
                         fontWeight: FontWeight.w600,
@@ -671,6 +668,40 @@ class _ConversationChatState extends State<_ConversationChat> {
                       : c.textHeading,
                   height: 1.4,
                 ),
+              ),
+            ),
+          if (_currentUserPrompt != null)
+            Container(
+              width: double.infinity,
+              margin: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: c.cardBg,
+                borderRadius: BorderRadius.circular(18),
+                border: Border.all(color: c.accentPurple.withValues(alpha: 0.28)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Câu mẫu cần đọc',
+                    style: base.copyWith(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w800,
+                      color: c.accentBlue,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    _currentUserPrompt!,
+                    style: base.copyWith(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: c.textHeading,
+                      height: 1.35,
+                    ),
+                  ),
+                ],
               ),
             ),
           Container(
@@ -791,19 +822,78 @@ class _ConversationChatState extends State<_ConversationChat> {
       return;
     }
 
+    if (_currentUserPrompt == null || _nextTurnIndex >= _scriptFlow.length) {
+      _speechService.resetSession();
+      return;
+    }
+
+    final expected = _scriptFlow[_nextTurnIndex];
+    if (expected.isAi) {
+      _speechService.resetSession();
+      return;
+    }
+
     setState(() {
-      _messages.add(_ChatMessage(text: transcript, isUser: true));
+      // User practices by reading the scripted line.
+      _messages.add(_ChatMessage(text: expected.text, isUser: true));
+      _nextTurnIndex++;
+      _currentUserPrompt = null;
     });
     _speechService.resetSession();
     _scrollToBottom();
 
     Future.delayed(const Duration(milliseconds: 500), () {
-      if (mounted) _addAIMessage();
+      if (mounted) _pushNextAiTurn();
     });
   }
 
   String _localeIdForApp() {
-    return appLanguage.locale.languageCode == 'vi' ? 'vi_VN' : 'en_US';
+    // Speech-to-text is forced to Vietnamese for conversation training.
+    return 'vi_VN';
+  }
+
+  Future<void> _speakAiMessage(String text) async {
+    if (text.trim().isEmpty || !_ttsService.isConfigured) return;
+    try {
+      if (mounted) setState(() => _isAiSpeaking = true);
+      final ttsConfig = await _resolveVietnameseTtsConfig();
+      final bytes = await _ttsService.synthesize(
+        text: text,
+        languageCode: 'vi-VN',
+        voiceName: ttsConfig.voiceName,
+        speakingRate: ttsConfig.speed,
+      );
+      await _ttsPlayer.stop();
+      await _ttsPlayer.play(BytesSource(bytes), volume: 1.0);
+    } catch (_) {
+      if (mounted) setState(() => _isAiSpeaking = false);
+    }
+  }
+
+  Future<void> _stopAiVoice() async {
+    await _ttsPlayer.stop();
+    if (!mounted) return;
+    setState(() => _isAiSpeaking = false);
+  }
+
+  Future<({String voiceName, double speed})> _resolveVietnameseTtsConfig() async {
+    final prefs = await SharedPreferences.getInstance();
+    final tone = (prefs.getString('profile_ai_voice_tone') ?? 'Balanced')
+        .toLowerCase();
+    final speed = (prefs.getDouble('profile_ai_voice_speed') ?? 1.0).clamp(
+      0.8,
+      1.3,
+    );
+
+    String voiceName;
+    if (tone.contains('calm')) {
+      voiceName = 'vi-VN-Standard-B';
+    } else if (tone.contains('energetic')) {
+      voiceName = 'vi-VN-Standard-D';
+    } else {
+      voiceName = 'vi-VN-Standard-A';
+    }
+    return (voiceName: voiceName, speed: speed);
   }
 }
 
@@ -812,6 +902,14 @@ class _ChatMessage {
   final bool isUser;
 
   const _ChatMessage({required this.text, required this.isUser});
+}
+
+class _ScriptTurn {
+  final String text;
+  final bool isAi;
+
+  const _ScriptTurn.ai(this.text) : isAi = true;
+  const _ScriptTurn.user(this.text) : isAi = false;
 }
 
 // Voice Settings Bottom Sheet
@@ -825,34 +923,58 @@ class _VoiceSettingsSheet extends StatefulWidget {
 class _VoiceSettingsSheetState extends State<_VoiceSettingsSheet> {
   int _selectedVoice = 1;
   double _speed = 1.0;
+  bool _isLoading = true;
 
   final List<Map<String, dynamic>> _voices = [
     {
-      'name': 'Giọng nam miền Bắc',
+      'name': 'Calm',
       'icon': Icons.person_rounded,
       'color': AppColors.onboardingBlueDeep,
     },
     {
-      'name': 'Giọng nữ miền Nam',
+      'name': 'Balanced',
       'icon': Icons.person_rounded,
       'color': AppColors.onboardingBlue,
     },
     {
-      'name': 'Giọng nữ miền Bắc',
+      'name': 'Energetic',
       'icon': Icons.person_rounded,
       'color': AppColors.progressAccentBlue,
     },
-    {
-      'name': 'Giọng nam miền Nam',
-      'icon': Icons.person_rounded,
-      'color': AppColors.progressMilestonePurple,
-    },
   ];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSavedSettings();
+  }
+
+  Future<void> _loadSavedSettings() async {
+    final prefs = await SharedPreferences.getInstance();
+    final tone = (prefs.getString('profile_ai_voice_tone') ?? 'Balanced')
+        .toLowerCase();
+    final speed = prefs.getDouble('profile_ai_voice_speed') ?? 1.0;
+    if (!mounted) return;
+    setState(() {
+      if (tone.contains('calm')) {
+        _selectedVoice = 0;
+      } else if (tone.contains('energetic')) {
+        _selectedVoice = 2;
+      } else {
+        _selectedVoice = 1;
+      }
+      _speed = speed.clamp(0.8, 1.3);
+      _isLoading = false;
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
     final base = GoogleFonts.plusJakartaSans();
     final c = context.colors;
+    if (_isLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
     return Container(
       decoration: BoxDecoration(
         color: c.surfaceBg,
@@ -1009,21 +1131,19 @@ class _VoiceSettingsSheetState extends State<_VoiceSettingsSheet> {
               Expanded(
                 child: Slider(
                   value: _speed,
-                  min: 0.5,
-                  max: 1.5,
-                  divisions: 4,
+                  min: 0.8,
+                  max: 1.3,
+                  divisions: 5,
                   activeColor: c.accentBlue,
                   inactiveColor: c.accentBlue.withValues(
                     alpha: 0.18,
                   ),
-                  label: _speed == 0.5
-                      ? 'Rất chậm'
-                      : _speed == 0.75
-                      ? 'Chậm'
-                      : _speed == 1.0
+                  label: _speed == 1.0
                       ? 'Bình thường'
-                      : _speed == 1.25
+                      : _speed == 1.1
                       ? 'Nhanh'
+                      : _speed < 1.0
+                      ? 'Chậm'
                       : 'Rất nhanh',
                   onChanged: (v) => setState(() => _speed = v),
                 ),
@@ -1047,23 +1167,7 @@ class _VoiceSettingsSheetState extends State<_VoiceSettingsSheet> {
               color: Colors.transparent,
               child: InkWell(
                 onTap: () {
-                  Navigator.pop(context);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text(
-                        'Đã lưu cài đặt giọng nói!',
-                        style: base.copyWith(
-                          color: Colors.white,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      backgroundColor: AppColors.progressAccentBlue,
-                      behavior: SnackBarBehavior.floating,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(14),
-                      ),
-                    ),
-                  );
+                  _saveAndClose();
                 },
                 borderRadius: BorderRadius.circular(14),
                 child: Ink(
@@ -1086,6 +1190,35 @@ class _VoiceSettingsSheetState extends State<_VoiceSettingsSheet> {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Future<void> _saveAndClose() async {
+    final prefs = await SharedPreferences.getInstance();
+    final tone = switch (_selectedVoice) {
+      0 => 'Calm',
+      2 => 'Energetic',
+      _ => 'Balanced',
+    };
+    await prefs.setString('profile_ai_voice_tone', tone);
+    await prefs.setDouble('profile_ai_voice_speed', _speed);
+    if (!mounted) return;
+    Navigator.pop(context);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          'Đã lưu cài đặt giọng nói AI',
+          style: GoogleFonts.plusJakartaSans(
+            color: Colors.white,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        backgroundColor: AppColors.progressAccentBlue,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(14),
+        ),
       ),
     );
   }

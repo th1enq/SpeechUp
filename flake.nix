@@ -29,7 +29,7 @@
             "35.0.0"
             "28.0.3"
           ];
-          platformVersions = [ "36" "34" ];
+          platformVersions = [ "36" "35" "34" ];
           abiVersions = [ "arm64-v8a" ];
 
           includeNDK = true;

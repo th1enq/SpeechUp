@@ -53,6 +53,25 @@ class FirestoreService {
     });
   }
 
+  /// Check whether a profile already exists with this email.
+  Future<bool> isEmailRegistered(String email) async {
+    final normalized = email.trim().toLowerCase();
+    try {
+      final query = await _db
+          .collection('users')
+          .where('email', isEqualTo: normalized)
+          .limit(1)
+          .get();
+      return query.docs.isNotEmpty;
+    } on FirebaseException catch (e, st) {
+      _logFirestoreError('isEmailRegistered($email)', e, st);
+      return false;
+    } catch (e, st) {
+      _logFirestoreError('isEmailRegistered($email)', e, st);
+      return false;
+    }
+  }
+
   // ─── Practice Sessions ──────────────────────────────────────
 
   /// Save a practice session

@@ -7,6 +7,7 @@ import '../theme/app_colors.dart';
 import '../services/firestore_service.dart';
 import '../models/user_profile.dart';
 import '../models/practice_session.dart';
+import '../widgets/notifications_bell_button.dart';
 
 class ProgressScreen extends StatefulWidget {
   const ProgressScreen({super.key});
@@ -136,11 +137,103 @@ class _ProgressScreenState extends State<ProgressScreen> {
     await _loadSelectedDaySessions(user.uid);
   }
 
+  Future<void> _pickWeekFromCalendar() async {
+    final now = DateTime.now();
+    final initial = _weekEnd.isAfter(now) ? now : _weekEnd;
+    final firstDate = DateTime(now.year - 1, 1, 1);
+    final lastDate = DateTime(now.year, now.month, now.day);
+
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: initial,
+      firstDate: firstDate,
+      lastDate: lastDate,
+    );
+    if (picked == null || !mounted) return;
+
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null || !isFirebaseSupported) return;
+
+    setState(() {
+      _weekEnd = DateTime(picked.year, picked.month, picked.day);
+      _selectedDayIndex = 6;
+      _isLoading = true;
+    });
+
+    await _loadWeeklyScores(user.uid);
+    await _loadSelectedDaySessions(user.uid);
+    if (mounted) {
+      setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _openMilestones() async {
+    final base = GoogleFonts.plusJakartaSans();
+    final c = context.colors;
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      backgroundColor: c.surfaceBg,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (context) {
+        final cc = context.colors;
+        return SafeArea(
+          top: false,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  appLanguage.t('progress.milestones'),
+                  style: base.copyWith(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w900,
+                    color: cc.textHeading,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                _MilestoneRow(
+                  icon: Icons.local_fire_department_rounded,
+                  iconColor: cc.accentPurple,
+                  title: appLanguage.t('progress.milestoneStreak'),
+                  subtitle: '7 ngày luyện tập liên tục',
+                  c: cc,
+                ),
+                const SizedBox(height: 10),
+                _MilestoneRow(
+                  icon: Icons.auto_awesome_rounded,
+                  iconColor: cc.accentBlue,
+                  title: appLanguage.t('progress.milestoneFluency'),
+                  subtitle: 'Cải thiện độ trôi chảy theo tuần',
+                  c: cc,
+                ),
+                const SizedBox(height: 10),
+                _MilestoneRow(
+                  icon: Icons.schedule_rounded,
+                  iconColor: cc.accentPurple,
+                  title: appLanguage.t('progress.milestoneHour'),
+                  subtitle: 'Tổng 1 giờ luyện nói',
+                  c: cc,
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final base = GoogleFonts.plusJakartaSans();
     final t = appLanguage.t;
     final c = context.colors;
+    final compact = MediaQuery.sizeOf(context).width < 380;
     
     return SafeArea(
       child: RefreshIndicator(
@@ -156,80 +249,86 @@ class _ProgressScreenState extends State<ProgressScreen> {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Row(
-                    children: [
-                      Container(
-                        width: 44,
-                        height: 44,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: c.cardBg,
-                          boxShadow: [
-                            BoxShadow(
-                              color: c.shadowColor,
-                              blurRadius: 12,
-                              offset: const Offset(0, 4),
-                            ),
-                          ],
-                        ),
-                        child: Icon(
-                          Icons.person_rounded,
-                          color: c.accentBlue,
-                          size: 26,
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Text(
-                        'SpeechUp',
-                        style: base.copyWith(
-                          fontSize: 19,
-                          fontWeight: FontWeight.w800,
-                          color: c.textHeading,
-                        ),
-                      ),
-                    ],
+                  // Left: profile avatar (no logo text in this screen).
+                  CircleAvatar(
+                    radius: 22,
+                    backgroundColor: c.cardBg,
+                    backgroundImage: FirebaseAuth.instance.currentUser?.photoURL !=
+                            null
+                        ? NetworkImage(
+                            FirebaseAuth.instance.currentUser!.photoURL!,
+                          )
+                        : null,
+                    child: FirebaseAuth.instance.currentUser?.photoURL ==
+                            null
+                        ? Icon(
+                            Icons.person_rounded,
+                            color: c.textMuted,
+                            size: 22,
+                          )
+                        : null,
                   ),
-                  IconButton(
-                    onPressed: () {},
-                    padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints(minWidth: 40, minHeight: 40),
-                    icon: Icon(
-                      Icons.notifications_outlined,
-                      color: c.textHeading,
-                      size: 26,
-                    ),
+                  NotificationsBellButton(
+                    iconColor: c.textHeading,
+                    iconSize: 26,
                   ),
                 ],
               ),
               const SizedBox(height: 22),
-              Text(
-                t('progress.title'),
-                style: base.copyWith(
-                  fontSize: 30,
-                  fontWeight: FontWeight.w800,
-                  color: c.textHeading,
-                  height: 1.15,
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
+                decoration: BoxDecoration(
+                  color: c.cardBg,
+                  borderRadius: BorderRadius.circular(26),
+                  border: Border.all(color: c.borderColor.withValues(alpha: 0.7)),
+                  boxShadow: [
+                    BoxShadow(
+                      color: c.shadowColor.withValues(alpha: 0.12),
+                      blurRadius: 18,
+                      offset: const Offset(0, 8),
+                    )
+                  ],
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      t('progress.title'),
+                      style: base.copyWith(
+                        fontSize: 22,
+                        fontWeight: FontWeight.w900,
+                        color: c.textHeading,
+                        height: 1.15,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    if (_isLoading)
+                      const SizedBox(
+                        height: 18,
+                        width: 90,
+                        child: LinearProgressIndicator(),
+                      )
+                    else
+                      Text(
+                        t(
+                          'progress.monthlyMinutes',
+                          params: {
+                            'minutes':
+                                '${_profile?.totalSpeakingMinutes.round() ?? 0}',
+                          },
+                        ),
+                        style: base.copyWith(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          color: c.textMuted,
+                          height: 1.35,
+                        ),
+                      ),
+                  ],
                 ),
               ),
-              const SizedBox(height: 10),
-              if (_isLoading)
-                const CircularProgressIndicator()
-              else
-                Text(
-                  t(
-                    'progress.monthlyMinutes',
-                    params: {
-                      'minutes': '${_profile?.totalSpeakingMinutes.round() ?? 0}',
-                    },
-                  ),
-                  style: base.copyWith(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w500,
-                    color: c.textMuted,
-                    height: 1.45,
-                  ),
-                ),
-              const SizedBox(height: 20),
+              const SizedBox(height: 18),
               if (_showWeekly) ...[
                 _Recent7DaysNav(
                   base: base,
@@ -241,6 +340,7 @@ class _ProgressScreenState extends State<ProgressScreen> {
                   onPrev: _goPrevWeek,
                   onNext: _goNextWeek,
                   canGoNext: _canGoNextWeek,
+                  onPickDate: _pickWeekFromCalendar,
                 ),
                 const SizedBox(height: 12),
                 _DailyStudySummaryCard(
@@ -293,18 +393,21 @@ class _ProgressScreenState extends State<ProgressScreen> {
               _SpeechSpeedTrendCard(base: base, averageSpeed: 142, targetSpeed: 150, c: c), // Replace 142 with real metric if available
               const SizedBox(height: 26),
               Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Text(
-                    t('progress.milestones'),
-                    style: base.copyWith(
-                      fontSize: 17,
-                      fontWeight: FontWeight.w800,
-                      color: c.textHeading,
+                  Expanded(
+                    child: Text(
+                      t('progress.milestones'),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: base.copyWith(
+                        fontSize: compact ? 16 : 17,
+                        fontWeight: FontWeight.w800,
+                        color: c.textHeading,
+                      ),
                     ),
                   ),
                   TextButton(
-                    onPressed: () {},
+                    onPressed: _openMilestones,
                     style: TextButton.styleFrom(
                       foregroundColor: c.accentBlue,
                       padding: const EdgeInsets.symmetric(horizontal: 8),
@@ -323,36 +426,51 @@ class _ProgressScreenState extends State<ProgressScreen> {
                 ],
               ),
               const SizedBox(height: 14),
-              Row(
-                children: [
-                  Expanded(
-                    child: _MilestoneItem(
+              LayoutBuilder(
+                builder: (context, constraints) {
+                  final items = [
+                    _MilestoneItem(
                       base: base,
                       icon: Icons.local_fire_department_rounded,
                       iconColor: c.accentPurple,
                       label: t('progress.milestoneStreak'),
                       c: c,
                     ),
-                  ),
-                  Expanded(
-                    child: _MilestoneItem(
+                    _MilestoneItem(
                       base: base,
                       icon: Icons.auto_awesome_rounded,
                       iconColor: c.accentBlue,
                       label: t('progress.milestoneFluency'),
                       c: c,
                     ),
-                  ),
-                  Expanded(
-                    child: _MilestoneItem(
+                    _MilestoneItem(
                       base: base,
                       icon: Icons.schedule_rounded,
                       iconColor: c.accentPurple,
                       label: t('progress.milestoneHour'),
                       c: c,
                     ),
-                  ),
-                ],
+                  ];
+                  if (!compact) {
+                    return Row(
+                      children: [
+                        Expanded(child: items[0]),
+                        Expanded(child: items[1]),
+                        Expanded(child: items[2]),
+                      ],
+                    );
+                  }
+                  final itemWidth = (constraints.maxWidth - 10) / 2;
+                  return Wrap(
+                    spacing: 10,
+                    runSpacing: 10,
+                    children: [
+                      SizedBox(width: itemWidth, child: items[0]),
+                      SizedBox(width: itemWidth, child: items[1]),
+                      SizedBox(width: itemWidth, child: items[2]),
+                    ],
+                  );
+                },
               ),
               const SizedBox(height: 26),
               Container(
@@ -634,6 +752,7 @@ class _DailyStudySummaryCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final f = base;
+    final isCompact = MediaQuery.sizeOf(context).width < 380;
 
     final totalSeconds = sessions.fold<int>(0, (acc, s) => acc + s.durationSeconds);
     final totalMinutes = (totalSeconds / 60).round();
@@ -688,6 +807,7 @@ class _DailyStudySummaryCard extends StatelessWidget {
                   icon: Icons.schedule_rounded,
                   c: c,
                   base: f,
+                  compact: isCompact,
                 ),
               ),
               const SizedBox(width: 10),
@@ -698,6 +818,7 @@ class _DailyStudySummaryCard extends StatelessWidget {
                   icon: Icons.auto_awesome_rounded,
                   c: c,
                   base: f,
+                  compact: isCompact,
                 ),
               ),
               const SizedBox(width: 10),
@@ -708,6 +829,7 @@ class _DailyStudySummaryCard extends StatelessWidget {
                   icon: Icons.insights_rounded,
                   c: c,
                   base: f,
+                  compact: isCompact,
                 ),
               ),
             ],
@@ -724,6 +846,7 @@ class _MiniStat extends StatelessWidget {
   final IconData icon;
   final AppColorsExtension c;
   final TextStyle base;
+  final bool compact;
 
   const _MiniStat({
     required this.label,
@@ -731,47 +854,48 @@ class _MiniStat extends StatelessWidget {
     required this.icon,
     required this.c,
     required this.base,
+    this.compact = false,
   });
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+      padding: EdgeInsets.symmetric(
+        horizontal: compact ? 8 : 12,
+        vertical: compact ? 10 : 12,
+      ),
       decoration: BoxDecoration(
         color: c.surfaceBg,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: c.borderColor.withValues(alpha: 0.7), width: 1),
       ),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 18, color: c.accentBlue),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: base.copyWith(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w700,
-                    color: c.textMuted,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  value,
-                  style: base.copyWith(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w800,
-                    color: c.textHeading,
-                    height: 1,
-                  ),
-                ),
-              ],
+          Icon(icon, size: compact ? 16 : 18, color: c.accentBlue),
+          SizedBox(height: compact ? 6 : 8),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerLeft,
+            child: Text(
+              label,
+              maxLines: 1,
+              style: base.copyWith(
+                fontSize: compact ? 10 : 11,
+                fontWeight: FontWeight.w700,
+                color: c.textMuted,
+              ),
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            value,
+            style: base.copyWith(
+              fontSize: compact ? 14 : 16,
+              fontWeight: FontWeight.w800,
+              color: c.textHeading,
+              height: 1,
             ),
           ),
         ],
@@ -859,6 +983,7 @@ class _Recent7DaysNav extends StatelessWidget {
   final VoidCallback onPrev;
   final VoidCallback onNext;
   final bool canGoNext;
+  final VoidCallback onPickDate;
 
   const _Recent7DaysNav({
     required this.base,
@@ -870,6 +995,7 @@ class _Recent7DaysNav extends StatelessWidget {
     required this.onPrev,
     required this.onNext,
     required this.canGoNext,
+    required this.onPickDate,
   });
 
   static const _weekdayShort = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
@@ -877,6 +1003,7 @@ class _Recent7DaysNav extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final f = base;
+    final isCompact = MediaQuery.sizeOf(context).width < 380;
 
     final normalizedEnd = DateTime(weekEnd.year, weekEnd.month, weekEnd.day);
     final days = List<DateTime>.generate(
@@ -910,13 +1037,31 @@ class _Recent7DaysNav extends StatelessWidget {
           Row(
             children: [
               Expanded(
-                child: Text(
-                  monthYear,
-                  style: f.copyWith(
-                    fontSize: 26,
-                    fontWeight: FontWeight.w800,
-                    color: c.textHeading,
-                    height: 1.05,
+                child: InkWell(
+                  onTap: onPickDate,
+                  borderRadius: BorderRadius.circular(14),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 4),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          monthYear,
+                          style: f.copyWith(
+                            fontSize: isCompact ? 18 : 24,
+                            fontWeight: FontWeight.w800,
+                            color: c.textHeading,
+                            height: 1.05,
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        Icon(
+                          Icons.calendar_today_rounded,
+                          size: 18,
+                          color: c.textMuted,
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ),
@@ -924,22 +1069,26 @@ class _Recent7DaysNav extends StatelessWidget {
                 icon: Icons.chevron_left_rounded,
                 onTap: onPrev,
                 c: c,
+                compact: isCompact,
               ),
-              const SizedBox(width: 10),
+              SizedBox(width: isCompact ? 6 : 10),
               _NavIconButton(
                 icon: Icons.chevron_right_rounded,
                 onTap: canGoNext ? onNext : null,
                 c: c,
+                compact: isCompact,
               ),
             ],
           ),
-          const SizedBox(height: 14),
+          SizedBox(height: isCompact ? 10 : 14),
           Row(
             children: [
               for (var i = 0; i < days.length; i++)
                 Expanded(
                   child: Padding(
-                    padding: EdgeInsets.only(right: i == days.length - 1 ? 0 : 8),
+                    padding: EdgeInsets.only(
+                      right: i == days.length - 1 ? 0 : (isCompact ? 4 : 8),
+                    ),
                     child: _DayNavItem(
                       weekday: _weekdayShort[(days[i].weekday - 1).clamp(0, 6)],
                       day: days[i].day,
@@ -949,6 +1098,7 @@ class _Recent7DaysNav extends StatelessWidget {
                       c: c,
                       borderColor: border,
                       base: f,
+                      compact: isCompact,
                     ),
                   ),
                 ),
@@ -964,11 +1114,13 @@ class _NavIconButton extends StatelessWidget {
   final IconData icon;
   final VoidCallback? onTap;
   final AppColorsExtension c;
+  final bool compact;
 
   const _NavIconButton({
     required this.icon,
     required this.onTap,
     required this.c,
+    this.compact = false,
   });
 
   @override
@@ -978,15 +1130,15 @@ class _NavIconButton extends StatelessWidget {
       color: Colors.transparent,
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(compact ? 12 : 18),
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 180),
           curve: Curves.easeOut,
-          width: 56,
-          height: 56,
+          width: compact ? 42 : 56,
+          height: compact ? 42 : 56,
           decoration: BoxDecoration(
             color: c.surfaceBg,
-            borderRadius: BorderRadius.circular(18),
+            borderRadius: BorderRadius.circular(compact ? 12 : 18),
             border: Border.all(
               color: c.borderColor.withValues(alpha: enabled ? 1 : 0.5),
               width: 1,
@@ -994,7 +1146,7 @@ class _NavIconButton extends StatelessWidget {
           ),
           child: Icon(
             icon,
-            size: 28,
+            size: compact ? 22 : 28,
             color: enabled ? c.textHeading : c.textMuted,
           ),
         ),
@@ -1012,6 +1164,7 @@ class _DayNavItem extends StatelessWidget {
   final AppColorsExtension c;
   final Color borderColor;
   final TextStyle base;
+  final bool compact;
 
   const _DayNavItem({
     required this.weekday,
@@ -1022,6 +1175,7 @@ class _DayNavItem extends StatelessWidget {
     required this.c,
     required this.borderColor,
     required this.base,
+    this.compact = false,
   });
 
   @override
@@ -1037,41 +1191,42 @@ class _DayNavItem extends StatelessWidget {
       color: Colors.transparent,
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(compact ? 14 : 18),
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 180),
           curve: Curves.easeOutCubic,
-          padding: const EdgeInsets.symmetric(vertical: 12),
+          padding: EdgeInsets.symmetric(vertical: compact ? 8 : 12),
           decoration: BoxDecoration(
             color: selected ? c.accentBlue : Colors.transparent,
-            borderRadius: BorderRadius.circular(18),
+            borderRadius: BorderRadius.circular(compact ? 14 : 18),
           ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               Text(
                 weekday,
+                softWrap: false,
                 style: base.copyWith(
-                  fontSize: 12,
+                  fontSize: compact ? 10 : 12,
                   fontWeight: FontWeight.w700,
-                  letterSpacing: 0.6,
+                  letterSpacing: compact ? 0.2 : 0.6,
                   color: weekdayColor,
                 ),
               ),
-              const SizedBox(height: 8),
+              SizedBox(height: compact ? 6 : 8),
               Text(
                 '$day',
                 style: base.copyWith(
-                  fontSize: 22,
+                  fontSize: compact ? 18 : 22,
                   fontWeight: FontWeight.w800,
                   color: dayColor,
                   height: 1.0,
                 ),
               ),
-              const SizedBox(height: 8),
+              SizedBox(height: compact ? 6 : 8),
               Container(
-                width: 6,
-                height: 6,
+                width: compact ? 5 : 6,
+                height: compact ? 5 : 6,
                 decoration: BoxDecoration(
                   color: indicatorColor,
                   shape: BoxShape.circle,
@@ -1262,6 +1417,75 @@ class _MilestoneItem extends StatelessWidget {
           maxLines: 2,
         ),
       ],
+    );
+  }
+}
+
+class _MilestoneRow extends StatelessWidget {
+  final IconData icon;
+  final Color iconColor;
+  final String title;
+  final String subtitle;
+  final AppColorsExtension c;
+
+  const _MilestoneRow({
+    required this.icon,
+    required this.iconColor,
+    required this.title,
+    required this.subtitle,
+    required this.c,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final base = GoogleFonts.plusJakartaSans();
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: c.cardBg,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: c.borderColor.withValues(alpha: 0.7)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 38,
+            height: 38,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: iconColor.withValues(alpha: 0.12),
+            ),
+            child: Icon(icon, color: iconColor, size: 20),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: base.copyWith(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w900,
+                    color: c.textHeading,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  subtitle,
+                  style: base.copyWith(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: c.textMuted,
+                    height: 1.25,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
