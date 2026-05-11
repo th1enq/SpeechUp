@@ -8,6 +8,8 @@ import '../main.dart' show isFirebaseSupported;
 import '../l10n/app_language.dart';
 import '../services/speech_input_service.dart';
 import '../services/google_tts_service.dart';
+import '../services/local_tts_service.dart';
+import '../services/llm_chat_service.dart';
 import '../theme/app_colors.dart';
 import '../widgets/shared_widgets.dart';
 import '../widgets/notifications_bell_button.dart';
@@ -23,6 +25,8 @@ class ConversationScreen extends StatefulWidget {
 class _ConversationScreenState extends State<ConversationScreen> {
   bool _inConversation = false;
   String? _selectedScenario;
+  String? _customPrompt;
+  final TextEditingController _customTopicController = TextEditingController();
 
   final List<_Scenario> _scenarios = [
     _Scenario(
@@ -33,11 +37,25 @@ class _ConversationScreenState extends State<ConversationScreen> {
       color: AppColors.onboardingBlueDeep,
     ),
     _Scenario(
+      id: 'shopping',
+      title: 'Mua sắm tại cửa hàng',
+      description: 'Luyện hỏi giá, chọn đồ và thanh toán',
+      icon: Icons.shopping_bag_rounded,
+      color: const Color(0xFF059669),
+    ),
+    _Scenario(
       id: 'interview',
       title: 'Phỏng vấn xin việc',
       description: 'Tập trả lời các câu hỏi phỏng vấn một cách tự tin',
       icon: Icons.work_rounded,
       color: AppColors.progressAccentBlue,
+    ),
+    _Scenario(
+      id: 'doctor',
+      title: 'Khám bệnh tại phòng khám',
+      description: 'Luyện mô tả triệu chứng và hỏi bác sĩ',
+      icon: Icons.local_hospital_rounded,
+      color: const Color(0xFFDC2626),
     ),
     _Scenario(
       id: 'phone',
@@ -56,14 +74,31 @@ class _ConversationScreenState extends State<ConversationScreen> {
   ];
 
   @override
+  void dispose() {
+    _customTopicController.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     if (_inConversation && _selectedScenario != null) {
       return _ConversationChat(
-        scenario: _scenarios.firstWhere((s) => s.id == _selectedScenario),
+        scenario: _scenarios.firstWhere(
+          (s) => s.id == _selectedScenario,
+          orElse: () => _Scenario(
+            id: 'custom',
+            title: _customPrompt ?? 'Chủ đề tự do',
+            description: 'Hội thoại tự do với AI',
+            icon: Icons.chat_rounded,
+            color: AppColors.onboardingBlue,
+          ),
+        ),
+        customPrompt: _customPrompt,
         onExit: () {
           setState(() {
             _inConversation = false;
             _selectedScenario = null;
+            _customPrompt = null;
           });
         },
         onSaveConversation: (scenarioId, messages) async {
@@ -127,6 +162,72 @@ class _ConversationScreenState extends State<ConversationScreen> {
               ),
             ),
             const SizedBox(height: 22),
+
+            // ── Custom topic input ──
+            Container(
+              margin: const EdgeInsets.only(bottom: 16),
+              padding: const EdgeInsets.all(4),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(18),
+                boxShadow: [
+                  BoxShadow(
+                    color: AppColors.dashboardNavy.withValues(alpha: 0.06),
+                    blurRadius: 14,
+                    offset: const Offset(0, 5),
+                  ),
+                ],
+              ),
+              child: Row(
+                children: [
+                  const SizedBox(width: 14),
+                  Icon(Icons.edit_rounded, color: AppColors.onboardingBlue, size: 20),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: TextField(
+                      controller: _customTopicController,
+                      style: base.copyWith(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.dashboardNavy,
+                      ),
+                      decoration: InputDecoration(
+                        hintText: 'Hoặc nhập chủ đề riêng...',
+                        hintStyle: base.copyWith(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w500,
+                          color: AppColors.dashboardTextMuted,
+                        ),
+                        border: InputBorder.none,
+                        contentPadding: const EdgeInsets.symmetric(vertical: 14),
+                      ),
+                    ),
+                  ),
+                  Material(
+                    color: AppColors.onboardingBlue,
+                    borderRadius: BorderRadius.circular(14),
+                    child: InkWell(
+                      onTap: () {
+                        final topic = _customTopicController.text.trim();
+                        if (topic.isEmpty) return;
+                        setState(() {
+                          _selectedScenario = 'custom';
+                          _customPrompt = topic;
+                          _inConversation = true;
+                        });
+                      },
+                      borderRadius: BorderRadius.circular(14),
+                      child: const Padding(
+                        padding: EdgeInsets.all(12),
+                        child: Icon(Icons.send_rounded, color: Colors.white, size: 20),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            // ── Scenario grid ──
             ..._scenarios.map(
               (scenario) => Padding(
                 padding: const EdgeInsets.only(bottom: 12),
@@ -336,6 +437,7 @@ class _ScenarioCard extends StatelessWidget {
 // Conversation Chat Screen
 class _ConversationChat extends StatefulWidget {
   final _Scenario scenario;
+  final String? customPrompt;
   final VoidCallback onExit;
   final Future<void> Function(
     String scenarioId,
@@ -345,6 +447,7 @@ class _ConversationChat extends StatefulWidget {
 
   const _ConversationChat({
     required this.scenario,
+    this.customPrompt,
     required this.onExit,
     this.onSaveConversation,
   });
@@ -362,9 +465,14 @@ class _ConversationChatState extends State<_ConversationChat> {
   String? _currentUserPrompt;
   late final SpeechInputService _speechService;
   final GoogleTtsService _ttsService = GoogleTtsService();
+  final LocalTtsService _localTtsService = LocalTtsService();
   final AudioPlayer _ttsPlayer = AudioPlayer();
   String? _lastSpeechError;
   final ScrollController _scrollController = ScrollController();
+  final LlmChatService _llmService = LlmChatService();
+  bool _useLlm = false;
+  final TextEditingController _textInputController = TextEditingController();
+  bool _showTextInput = false;
 
   // Scripted conversation flows (AI + User full turns).
   static const Map<String, List<_ScriptTurn>> _conversationFlows = {
@@ -430,8 +538,56 @@ class _ConversationChatState extends State<_ConversationChat> {
       if (!mounted) return;
       setState(() => _isAiSpeaking = false);
     });
-    // Start scripted conversation.
-    _pushNextAiTurn();
+    _localTtsService.onComplete = () {
+      if (!mounted) return;
+      setState(() => _isAiSpeaking = false);
+    };
+
+    // Pre-check mic availability and auto-show text input if unavailable
+    _checkMicAvailability();
+
+    // Decide whether to use LLM or scripted flow
+    _useLlm = _llmService.isConfigured;
+
+    if (_useLlm) {
+      _llmService.startScenario(
+        scenarioId: widget.scenario.id,
+        customPrompt: widget.customPrompt,
+      );
+      _startLlmConversation();
+    } else {
+      _pushNextAiTurn();
+    }
+  }
+
+  Future<void> _checkMicAvailability() async {
+    if (!_speechService.isSupportedPlatform) {
+      if (mounted) setState(() => _showTextInput = true);
+      return;
+    }
+    final available = await _speechService.initialize(localeId: 'vi_VN');
+    if (!available && mounted) {
+      debugPrint('[Conversation] Mic not available, showing text input');
+      setState(() => _showTextInput = true);
+    }
+  }
+
+  Future<void> _startLlmConversation() async {
+    setState(() => _isTyping = true);
+    try {
+      final opening = await _llmService.getOpeningMessage();
+      if (!mounted) return;
+      setState(() {
+        _isTyping = false;
+        _messages.add(_ChatMessage(text: opening, isUser: false));
+      });
+      _scrollToBottom();
+      unawaited(_speakAiMessage(opening));
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _isTyping = false);
+      debugPrint('[Conversation] LLM opening failed: $e');
+    }
   }
 
   List<_ScriptTurn> get _scriptFlow =>
@@ -469,7 +625,7 @@ class _ConversationChatState extends State<_ConversationChat> {
 
   Future<void> _toggleRecording() async {
     if (_isTyping) return;
-    if (_currentUserPrompt == null) {
+    if (!_useLlm && _currentUserPrompt == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Không còn câu mẫu để luyện ở kịch bản này.')),
       );
@@ -486,9 +642,10 @@ class _ConversationChatState extends State<_ConversationChat> {
 
     if (!_speechService.isSupportedPlatform) {
       if (mounted) {
+        setState(() => _showTextInput = true);
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(appLanguage.t('practice.unsupportedPlatform')),
+          const SnackBar(
+            content: Text('Mic không khả dụng — hãy dùng bàn phím để nhập tin nhắn.'),
           ),
         );
       }
@@ -503,11 +660,10 @@ class _ConversationChatState extends State<_ConversationChat> {
       pauseFor: const Duration(seconds: 3),
     );
     if (!didStart && mounted) {
+      setState(() => _showTextInput = true);
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            '${appLanguage.t('practice.permissionDenied')} ${_speechService.errorSummary}',
-          ),
+        const SnackBar(
+          content: Text('Không thể bật mic — hãy dùng bàn phím để nhập tin nhắn.'),
         ),
       );
     }
@@ -539,7 +695,9 @@ class _ConversationChatState extends State<_ConversationChat> {
       ..cancelListening();
     unawaited(_stopAiVoice());
     _ttsPlayer.dispose();
+    _localTtsService.stop();
     _scrollController.dispose();
+    _textInputController.dispose();
     super.dispose();
   }
 
@@ -704,6 +862,78 @@ class _ConversationChatState extends State<_ConversationChat> {
                 ],
               ),
             ),
+          // ── Text input area (shown when mic unavailable) ──
+          if (_showTextInput)
+            Container(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+              color: c.surfaceBg,
+              child: Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _textInputController,
+                      style: base.copyWith(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: c.textHeading,
+                      ),
+                      decoration: InputDecoration(
+                        hintText: 'Nhập tin nhắn...',
+                        hintStyle: base.copyWith(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w500,
+                          color: c.textMuted,
+                        ),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(16),
+                          borderSide: BorderSide(
+                            color: c.borderColor.withValues(alpha: 0.5),
+                          ),
+                        ),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(16),
+                          borderSide: BorderSide(
+                            color: c.borderColor.withValues(alpha: 0.5),
+                          ),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(16),
+                          borderSide: BorderSide(
+                            color: c.accentBlue,
+                            width: 1.5,
+                          ),
+                        ),
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 12,
+                        ),
+                        filled: true,
+                        fillColor: c.cardBg,
+                      ),
+                      textInputAction: TextInputAction.send,
+                      onSubmitted: (_) => _submitTextMessage(),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Material(
+                    color: c.accentBlue,
+                    borderRadius: BorderRadius.circular(14),
+                    child: InkWell(
+                      onTap: _submitTextMessage,
+                      borderRadius: BorderRadius.circular(14),
+                      child: const Padding(
+                        padding: EdgeInsets.all(12),
+                        child: Icon(
+                          Icons.send_rounded,
+                          color: Colors.white,
+                          size: 20,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
           Container(
             padding: EdgeInsets.fromLTRB(
               20,
@@ -741,13 +971,40 @@ class _ConversationChatState extends State<_ConversationChat> {
                     ),
                   ),
                 ),
-                const SizedBox(width: 20),
+                const SizedBox(width: 14),
                 MicButton(
                   isRecording: _isUserRecording,
                   onTap: () => _toggleRecording(),
                   size: 64,
                 ),
-                const SizedBox(width: 20),
+                const SizedBox(width: 14),
+                // Toggle text input button
+                Material(
+                  color: _showTextInput
+                      ? c.accentBlue.withValues(alpha: 0.15)
+                      : AppColors.dashboardNavPill,
+                  shape: const CircleBorder(),
+                  child: InkWell(
+                    onTap: () {
+                      setState(() => _showTextInput = !_showTextInput);
+                    },
+                    customBorder: const CircleBorder(),
+                    child: SizedBox(
+                      width: 50,
+                      height: 50,
+                      child: Icon(
+                        _showTextInput
+                            ? Icons.keyboard_hide_rounded
+                            : Icons.keyboard_rounded,
+                        color: _showTextInput
+                            ? c.accentBlue
+                            : AppColors.onboardingBlueDeep,
+                        size: 24,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 14),
                 Material(
                   color: AppColors.dashboardNavPill,
                   shape: const CircleBorder(),
@@ -802,10 +1059,14 @@ class _ConversationChatState extends State<_ConversationChat> {
         !isListening &&
         error != _lastSpeechError) {
       _lastSpeechError = error;
+      // Auto-show text input as fallback when mic fails
+      if (!_showTextInput) {
+        setState(() => _showTextInput = true);
+      }
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            '${appLanguage.t('practice.permissionDenied')} ${_speechService.errorSummary}',
+            'Mic không khả dụng — hãy dùng bàn phím để nhập tin nhắn.',
           ),
         ),
       );
@@ -822,6 +1083,12 @@ class _ConversationChatState extends State<_ConversationChat> {
       return;
     }
 
+    if (_useLlm) {
+      _submitLlmMessage(transcript);
+      return;
+    }
+
+    // Scripted flow
     if (_currentUserPrompt == null || _nextTurnIndex >= _scriptFlow.length) {
       _speechService.resetSession();
       return;
@@ -834,7 +1101,6 @@ class _ConversationChatState extends State<_ConversationChat> {
     }
 
     setState(() {
-      // User practices by reading the scripted line.
       _messages.add(_ChatMessage(text: expected.text, isUser: true));
       _nextTurnIndex++;
       _currentUserPrompt = null;
@@ -847,31 +1113,117 @@ class _ConversationChatState extends State<_ConversationChat> {
     });
   }
 
+  void _submitTextMessage() {
+    final text = _textInputController.text.trim();
+    if (text.isEmpty || _isTyping) return;
+    _textInputController.clear();
+
+    if (_useLlm) {
+      _submitLlmMessage(text);
+      return;
+    }
+
+    // Scripted flow: just add user text and push next AI turn
+    if (_currentUserPrompt == null || _nextTurnIndex >= _scriptFlow.length) {
+      return;
+    }
+
+    final expected = _scriptFlow[_nextTurnIndex];
+    if (expected.isAi) return;
+
+    setState(() {
+      _messages.add(_ChatMessage(text: text, isUser: true));
+      _nextTurnIndex++;
+      _currentUserPrompt = null;
+    });
+    _scrollToBottom();
+
+    Future.delayed(const Duration(milliseconds: 500), () {
+      if (mounted) _pushNextAiTurn();
+    });
+  }
+
+  Future<void> _submitLlmMessage(String userText) async {
+    setState(() {
+      _messages.add(_ChatMessage(text: userText, isUser: true));
+      _isTyping = true;
+    });
+    _speechService.resetSession();
+    _scrollToBottom();
+
+    try {
+      final reply = await _llmService.sendMessage(userText);
+      if (!mounted) return;
+      setState(() {
+        _isTyping = false;
+        _messages.add(_ChatMessage(text: reply, isUser: false));
+      });
+      _scrollToBottom();
+      unawaited(_speakAiMessage(reply));
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _isTyping = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('AI error: $e')),
+      );
+    }
+  }
+
   String _localeIdForApp() {
     // Speech-to-text is forced to Vietnamese for conversation training.
     return 'vi_VN';
   }
 
   Future<void> _speakAiMessage(String text) async {
-    if (text.trim().isEmpty || !_ttsService.isConfigured) return;
+    if (text.trim().isEmpty) return;
+    debugPrint('[Conversation] _speakAiMessage called, text length: ${text.length}');
+
+    // Try Google TTS first (cloud, higher quality)
+    if (_ttsService.isConfigured) {
+      try {
+        debugPrint('[Conversation] Trying Google Cloud TTS...');
+        if (mounted) setState(() => _isAiSpeaking = true);
+        final ttsConfig = await _resolveVietnameseTtsConfig();
+        final bytes = await _ttsService.synthesize(
+          text: text,
+          languageCode: 'vi-VN',
+          voiceName: ttsConfig.voiceName,
+          speakingRate: ttsConfig.speed,
+        );
+        await _ttsPlayer.stop();
+        await _ttsPlayer.play(BytesSource(bytes), volume: 1.0);
+        debugPrint('[Conversation] Google TTS playing successfully');
+        return;
+      } catch (e) {
+        debugPrint('[Conversation] Google TTS failed: $e, falling back to local TTS');
+      }
+    } else {
+      debugPrint('[Conversation] Google TTS not configured, using local TTS');
+    }
+
+    // Fallback: on-device TTS (no API key needed)
     try {
+      debugPrint('[Conversation] Trying local TTS (flutter_tts)...');
       if (mounted) setState(() => _isAiSpeaking = true);
-      final ttsConfig = await _resolveVietnameseTtsConfig();
-      final bytes = await _ttsService.synthesize(
-        text: text,
-        languageCode: 'vi-VN',
-        voiceName: ttsConfig.voiceName,
-        speakingRate: ttsConfig.speed,
+      final prefs = await SharedPreferences.getInstance();
+      final speed = (prefs.getDouble('profile_ai_voice_speed') ?? 1.0).clamp(0.8, 1.3);
+      // flutter_tts uses 0.0-1.0 range, map from 0.8-1.3 -> 0.35-0.65
+      final ttsSpeed = 0.35 + (speed - 0.8) * 0.6;
+      debugPrint('[Conversation] Local TTS speed: $ttsSpeed');
+      await _localTtsService.speak(
+        text,
+        language: 'vi-VN',
+        speakingRate: ttsSpeed,
       );
-      await _ttsPlayer.stop();
-      await _ttsPlayer.play(BytesSource(bytes), volume: 1.0);
-    } catch (_) {
+    } catch (e) {
+      debugPrint('[Conversation] Local TTS also failed: $e');
       if (mounted) setState(() => _isAiSpeaking = false);
     }
   }
 
   Future<void> _stopAiVoice() async {
     await _ttsPlayer.stop();
+    await _localTtsService.stop();
     if (!mounted) return;
     setState(() => _isAiSpeaking = false);
   }

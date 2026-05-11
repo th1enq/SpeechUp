@@ -27,6 +27,9 @@ class _HomeScreenState extends State<HomeScreen> {
   final FirestoreService _firestoreService = FirestoreService();
   bool _isLoading = true;
   int _todayMinutes = 0;
+  int _streakDays = 0;
+  TimeOfDay? _practiceTime;
+  List<bool> _weeklyActivity = List.filled(7, false);
   final List<_HomeNotification> _notifications = [
     _HomeNotification(
       title: 'Daily practice reminder',
@@ -67,9 +70,40 @@ class _HomeScreenState extends State<HomeScreen> {
         (acc, s) => acc + s.durationSeconds,
       );
       final minutes = (totalSeconds / 60).round();
+
+      // Load streak from user profile
+      int streak = 0;
+      try {
+        final profile = await _firestoreService.getUserProfile(user.uid);
+        streak = profile?.streakDays ?? 0;
+      } catch (_) {}
+
+      // Load saved practice time
+      TimeOfDay? savedTime;
+      try {
+        savedTime = await NotificationService().getSavedPracticeTime();
+      } catch (_) {}
+
+      // Build 7-day activity (today + 6 days back)
+      List<bool> activity = List.filled(7, false);
+      try {
+        final recentSessions = await _firestoreService.getRecentSessions(user.uid, limit: 50);
+        final now = DateTime.now();
+        for (int i = 0; i < 7; i++) {
+          final day = now.subtract(Duration(days: 6 - i));
+          activity[i] = recentSessions.any((s) =>
+            s.createdAt.year == day.year &&
+            s.createdAt.month == day.month &&
+            s.createdAt.day == day.day);
+        }
+      } catch (_) {}
+
       if (!mounted) return;
       setState(() {
         _todayMinutes = minutes;
+        _streakDays = streak;
+        _practiceTime = savedTime;
+        _weeklyActivity = activity;
         _isLoading = false;
       });
     } catch (e) {
@@ -83,6 +117,16 @@ class _HomeScreenState extends State<HomeScreen> {
   void _goChat() => widget.onNavigate(2);
   void _goProgress() => widget.onNavigate(3);
   void _goProfile() => widget.onNavigate(4);
+
+  Future<void> _openTimePicker() async {
+    final picked = await showTimePicker(
+      context: context,
+      initialTime: _practiceTime ?? const TimeOfDay(hour: 9, minute: 0),
+    );
+    if (picked == null || !mounted) return;
+    setState(() => _practiceTime = picked);
+    await NotificationService().scheduleAtUserTime(picked);
+  }
 
   int get _unreadNotificationCount =>
       _notifications.where((n) => !n.read).length;
@@ -323,13 +367,13 @@ class _HomeScreenState extends State<HomeScreen> {
     final percent = (progress * 100).round().clamp(0, 100);
 
     return SafeArea(
-      child: RefreshIndicator(
-        onRefresh: _loadData,
-        color: c.accentBlue,
-        backgroundColor: c.cardBg,
-        child: Stack(
-          children: [
-            SingleChildScrollView(
+      child: Stack(
+        children: [
+          RefreshIndicator(
+            onRefresh: _loadData,
+            color: c.accentBlue,
+            backgroundColor: c.cardBg,
+            child: SingleChildScrollView(
               physics: const AlwaysScrollableScrollPhysics(
                 parent: BouncingScrollPhysics(),
               ),
@@ -367,6 +411,16 @@ class _HomeScreenState extends State<HomeScreen> {
                       },
                     ),
                     badge: t('home.keepItUp'),
+                  ),
+                  const SizedBox(height: 16),
+                  // ── Streak + Scheduler combined card ──
+                  _StreakSchedulerCard(
+                    base: _base,
+                    c: c,
+                    streakDays: _streakDays,
+                    weeklyActivity: _weeklyActivity,
+                    practiceTime: _practiceTime,
+                    onScheduleTap: _openTimePicker,
                   ),
                   const SizedBox(height: 18),
                   _FeatureGrid(
@@ -495,19 +549,194 @@ class _HomeScreenState extends State<HomeScreen> {
                 ],
               ),
             ),
-            Positioned(
-              right: 20,
-              bottom: 12 + MediaQuery.paddingOf(context).bottom,
-              child: SafeArea(
-                top: false,
-                child: _MicFab(
-                  c: c,
-                  onTap: _goPractice,
-                ),
+          ),
+          Positioned(
+            right: 20,
+            bottom: 12 + MediaQuery.paddingOf(context).bottom,
+            child: SafeArea(
+              top: false,
+              child: _MicFab(
+                c: c,
+                onTap: _goPractice,
               ),
             ),
-          ],
-        ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ── Streak + Scheduler combined card (full-width, single row) ───
+class _StreakSchedulerCard extends StatelessWidget {
+  final TextStyle base;
+  final AppColorsExtension c;
+  final int streakDays;
+  final List<bool> weeklyActivity;
+  final TimeOfDay? practiceTime;
+  final VoidCallback onScheduleTap;
+
+  const _StreakSchedulerCard({
+    required this.base,
+    required this.c,
+    required this.streakDays,
+    required this.weeklyActivity,
+    required this.practiceTime,
+    required this.onScheduleTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final dayLetters = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
+    final hasTime = practiceTime != null;
+    final timeStr = hasTime ? practiceTime!.format(context) : '--:--';
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: c.cardBg,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: c.borderColor.withValues(alpha: 0.5)),
+        boxShadow: [
+          BoxShadow(color: c.shadowColor, blurRadius: 12, offset: const Offset(0, 4)),
+        ],
+      ),
+      child: Column(
+        children: [
+          // ── Top row: Streak info + Schedule button ──
+          Row(
+            children: [
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: AppColors.warmGradient,
+                  boxShadow: [
+                    BoxShadow(
+                      color: AppColors.streakFlame.withValues(alpha: 0.4),
+                      blurRadius: 8,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
+                ),
+                child: const Icon(
+                  Icons.local_fire_department_rounded,
+                  color: Colors.white,
+                  size: 22,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '$streakDays',
+                    style: base.copyWith(
+                      fontSize: 24,
+                      fontWeight: FontWeight.w900,
+                      color: c.textHeading,
+                      height: 1.1,
+                    ),
+                  ),
+                  Text(
+                    'day streak',
+                    style: base.copyWith(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      color: c.textMuted,
+                    ),
+                  ),
+                ],
+              ),
+              const Spacer(),
+              GestureDetector(
+                onTap: onScheduleTap,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: hasTime
+                        ? c.accentBlue.withValues(alpha: 0.10)
+                        : c.borderColor.withValues(alpha: 0.25),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(
+                      color: hasTime
+                          ? c.accentBlue.withValues(alpha: 0.35)
+                          : c.borderColor.withValues(alpha: 0.5),
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.alarm_rounded,
+                        color: hasTime ? c.accentBlue : c.textMuted,
+                        size: 18,
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        timeStr,
+                        style: base.copyWith(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w800,
+                          color: hasTime ? c.accentBlue : c.textMuted,
+                        ),
+                      ),
+                      if (hasTime) ...[
+                        const SizedBox(width: 4),
+                        Icon(
+                          Icons.check_circle_rounded,
+                          color: c.accentBlue,
+                          size: 14,
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          // ── 7-day activity row (full width) ──
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: List.generate(7, (i) {
+              final active = i < weeklyActivity.length && weeklyActivity[i];
+              final isToday = i == 6;
+              return Expanded(
+                child: Column(
+                  children: [
+                    Container(
+                      width: 28,
+                      height: 28,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: active
+                            ? AppColors.streakFlame
+                            : c.borderColor.withValues(alpha: 0.3),
+                        border: isToday
+                            ? Border.all(color: AppColors.streakFlame, width: 2)
+                            : null,
+                      ),
+                      child: active
+                          ? const Icon(Icons.check, color: Colors.white, size: 14)
+                          : null,
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      dayLetters[i],
+                      style: base.copyWith(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w700,
+                        color: active ? AppColors.streakFlame : c.textMuted,
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            }),
+          ),
+        ],
       ),
     );
   }

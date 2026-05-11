@@ -45,31 +45,37 @@ class SpeechInputService extends ChangeNotifier {
       return false;
     }
 
-    if (_isInitialized) return _isAvailable;
+    if (_isInitialized && _isAvailable) return _isAvailable;
 
     try {
+      debugPrint('[SpeechInput] Initializing speech recognition...');
       _isAvailable = await _speech.initialize(
         onStatus: _handleStatus,
         onError: _handleError,
-        debugLogging: false,
+        debugLogging: true,
       );
-      _isInitialized = true;
+      _isInitialized = _isAvailable;
+      debugPrint('[SpeechInput] Init result: available=$_isAvailable');
     } on PlatformException catch (error) {
       _isAvailable = false;
-      _isInitialized = true;
+      _isInitialized = false; // Allow retry
       _setError(_mapPlatformException(error));
+      debugPrint('[SpeechInput] PlatformException: ${error.code} - ${error.message}');
       notifyListeners();
       return false;
-    } catch (_) {
+    } catch (e) {
       _isAvailable = false;
-      _isInitialized = true;
+      _isInitialized = false; // Allow retry
       _setError('Speech recognition failed to initialize on this device.');
+      debugPrint('[SpeechInput] Init error: $e');
       notifyListeners();
       return false;
     }
 
     if (!_isAvailable) {
-      _setError('Speech recognition is unavailable on this device.');
+      _isInitialized = false; // Allow retry
+      _setError('Speech recognition is unavailable on this device. '
+          'Make sure Google App is installed and microphone permission is granted.');
     } else if (localeId != null) {
       final matchedLocale = await resolveLocaleId(localeId);
       if (matchedLocale == null) {

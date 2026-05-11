@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:fl_chart/fl_chart.dart';
 import '../main.dart' show isFirebaseSupported;
 import '../l10n/app_language.dart';
 import '../theme/app_colors.dart';
@@ -615,14 +616,15 @@ class _FluencyScoreCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final f = base;
-    
-    // Fallback logic
+
     final displayScores = scores.isEmpty ? [44, 58, 50, 64, 78, 60, 85] : scores;
     final safeIndex = selectedIndex.clamp(0, displayScores.length - 1);
     final currentScore = displayScores.isNotEmpty ? displayScores[safeIndex] : 0;
-    
-    // Normalize to max 100 for height, min height 4.0
-    final barHeights = displayScores.map((s) => (s / 100.0 * 92.0).clamp(4.0, 92.0)).toList();
+
+    final spots = <FlSpot>[
+      for (var i = 0; i < displayScores.length; i++)
+        FlSpot(i.toDouble(), displayScores[i].toDouble()),
+    ];
 
     return Container(
       width: double.infinity,
@@ -658,16 +660,16 @@ class _FluencyScoreCard extends StatelessWidget {
                 children: [
                   Icon(
                     Icons.trending_up_rounded,
-                    color: c.progressTrendRed,
+                    color: c.feedbackGood,
                     size: 18,
                   ),
                   const SizedBox(width: 2),
                   Text(
-                    '+12%', // To be real calculated later if we have previous week data
+                    _trendLabel(displayScores),
                     style: f.copyWith(
                       fontSize: 14,
                       fontWeight: FontWeight.w800,
-                      color: c.progressTrendRed,
+                      color: c.feedbackGood,
                     ),
                   ),
                 ],
@@ -701,36 +703,139 @@ class _FluencyScoreCard extends StatelessWidget {
                 ],
               ),
             ),
-          const SizedBox(height: 22),
-          SizedBox(
-            height: 92,
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                for (var i = 0; i < barHeights.length; i++)
-                  Expanded(
-                    child: Align(
-                      alignment: Alignment.bottomCenter,
-                      child: Container(
-                        width: 14,
-                        height: barHeights[i],
-                        decoration: BoxDecoration(
-                          color: i == safeIndex
-                              ? c.accentBlue
-                              : c.progressBarPale.withValues(alpha: 0.45),
-                          borderRadius: const BorderRadius.vertical(
-                            top: Radius.circular(7),
-                          ),
+          const SizedBox(height: 18),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              return SizedBox(
+                width: constraints.maxWidth,
+                height: 120,
+                child: LineChart(
+                  LineChartData(
+                    minX: 0,
+                    maxX: 6,
+                    minY: 0,
+                    maxY: 100,
+                    clipData: const FlClipData.all(),
+                    gridData: FlGridData(
+                      show: true,
+                      drawVerticalLine: false,
+                      horizontalInterval: 25,
+                      getDrawingHorizontalLine: (value) => FlLine(
+                        color: c.borderColor.withValues(alpha: 0.4),
+                        strokeWidth: 1,
+                        dashArray: [4, 4],
+                      ),
+                    ),
+                    titlesData: FlTitlesData(
+                      leftTitles: const AxisTitles(
+                        sideTitles: SideTitles(showTitles: false),
+                      ),
+                      rightTitles: const AxisTitles(
+                        sideTitles: SideTitles(showTitles: false),
+                      ),
+                      topTitles: const AxisTitles(
+                        sideTitles: SideTitles(showTitles: false),
+                      ),
+                      bottomTitles: AxisTitles(
+                        sideTitles: SideTitles(
+                          showTitles: true,
+                          reservedSize: 22,
+                          interval: 1,
+                          getTitlesWidget: (value, meta) {
+                            const days = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN'];
+                            final i = value.toInt();
+                            if (i < 0 || i >= days.length) return const SizedBox();
+                            return Padding(
+                              padding: const EdgeInsets.only(top: 6),
+                              child: Text(
+                                days[i],
+                                style: f.copyWith(
+                                  fontSize: 10,
+                                  fontWeight: i == safeIndex
+                                      ? FontWeight.w800
+                                      : FontWeight.w500,
+                                  color: i == safeIndex
+                                      ? c.accentBlue
+                                      : c.textMuted,
+                                ),
+                              ),
+                            );
+                          },
                         ),
                       ),
                     ),
+                    borderData: FlBorderData(show: false),
+                    lineTouchData: LineTouchData(
+                      touchTooltipData: LineTouchTooltipData(
+                        getTooltipItems: (spots) => spots.map((spot) {
+                          return LineTooltipItem(
+                            '${spot.y.round()}',
+                            f.copyWith(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w800,
+                              color: Colors.white,
+                            ),
+                          );
+                        }).toList(),
+                      ),
+                    ),
+                    lineBarsData: [
+                      LineChartBarData(
+                        spots: spots,
+                        isCurved: true,
+                        curveSmoothness: 0.3,
+                        color: c.accentBlue,
+                        barWidth: 3,
+                        isStrokeCapRound: true,
+                        dotData: FlDotData(
+                          show: true,
+                          getDotPainter: (spot, percent, bar, index) {
+                            if (index == safeIndex) {
+                              return FlDotCirclePainter(
+                                radius: 5,
+                                color: c.accentBlue,
+                                strokeWidth: 2.5,
+                                strokeColor: c.cardBg,
+                              );
+                            }
+                            return FlDotCirclePainter(
+                              radius: 2.5,
+                              color: c.accentBlue.withValues(alpha: 0.4),
+                              strokeWidth: 0,
+                            );
+                          },
+                        ),
+                        belowBarData: BarAreaData(
+                          show: true,
+                          gradient: LinearGradient(
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                            colors: [
+                              c.accentBlue.withValues(alpha: 0.25),
+                              c.accentBlue.withValues(alpha: 0.02),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
-              ],
-            ),
+                ),
+              );
+            },
           ),
         ],
       ),
     );
+  }
+
+  String _trendLabel(List<int> data) {
+    if (data.length < 2) return '--';
+    final first = data.take((data.length / 2).ceil()).fold<int>(0, (a, b) => a + b) /
+        (data.length / 2).ceil();
+    final second = data.skip((data.length / 2).ceil()).fold<int>(0, (a, b) => a + b) /
+        data.skip((data.length / 2).ceil()).length;
+    final diff = ((second - first) / (first == 0 ? 1 : first) * 100).round();
+    return diff >= 0 ? '+$diff%' : '$diff%';
   }
 }
 

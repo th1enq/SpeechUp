@@ -12,6 +12,12 @@ class PracticeSession {
   final int speechSpeed;
   final DateTime createdAt;
 
+  // ── Azure Pronunciation Assessment scores (0–100) ──
+  final double accuracyScore;
+  final double fluencyScore;
+  final double completenessScore;
+  final double prosodyScore;
+
   const PracticeSession({
     this.id,
     required this.userId,
@@ -23,6 +29,10 @@ class PracticeSession {
     this.pronunciation = 0,
     this.speechSpeed = 0,
     required this.createdAt,
+    this.accuracyScore = 0,
+    this.fluencyScore = 0,
+    this.completenessScore = 0,
+    this.prosodyScore = 0,
   });
 
   factory PracticeSession.fromFirestore(DocumentSnapshot doc) {
@@ -38,6 +48,10 @@ class PracticeSession {
       pronunciation: data['pronunciation'] ?? 0,
       speechSpeed: data['speechSpeed'] ?? 0,
       createdAt: (data['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
+      accuracyScore: (data['accuracyScore'] ?? 0).toDouble(),
+      fluencyScore: (data['fluencyScore'] ?? 0).toDouble(),
+      completenessScore: (data['completenessScore'] ?? 0).toDouble(),
+      prosodyScore: (data['prosodyScore'] ?? 0).toDouble(),
     );
   }
 
@@ -52,6 +66,10 @@ class PracticeSession {
       'pronunciation': pronunciation,
       'speechSpeed': speechSpeed,
       'createdAt': Timestamp.fromDate(createdAt),
+      'accuracyScore': accuracyScore,
+      'fluencyScore': fluencyScore,
+      'completenessScore': completenessScore,
+      'prosodyScore': prosodyScore,
     };
   }
 }

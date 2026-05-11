@@ -257,11 +257,17 @@ class WaveformWidget extends StatefulWidget {
   final Color? color;
   final double height;
 
+  /// Optional real-time sound level from [SpeechInputService.soundLevel].
+  /// Range: 0–40.  When provided, amplitudes are derived from this value
+  /// instead of using random data.
+  final double? soundLevel;
+
   const WaveformWidget({
     super.key,
     this.isActive = true,
     this.color,
     this.height = 60,
+    this.soundLevel,
   });
 
   @override
@@ -271,7 +277,7 @@ class WaveformWidget extends StatefulWidget {
 class _WaveformWidgetState extends State<WaveformWidget>
     with SingleTickerProviderStateMixin {
   late AnimationController _controller;
-  final List<double> _amplitudes = List.generate(
+  final List<double> _randomAmplitudes = List.generate(
     20,
     (i) => 0.2 + Random().nextDouble() * 0.8,
   );
@@ -302,15 +308,34 @@ class _WaveformWidgetState extends State<WaveformWidget>
     super.dispose();
   }
 
+  /// Derive amplitudes from real sound level.  Each bar gets a slightly
+  /// different phase offset so the waveform looks organic.
+  List<double> _amplitudesFromSoundLevel(double level) {
+    final normalized = (level / 40).clamp(0.0, 1.0);
+    const count = 20;
+    return List.generate(count, (i) {
+      // Bell-curve shape: center bars are taller
+      final center = (count - 1) / 2;
+      final distFromCenter = (i - center).abs() / center; // 0–1
+      final envelope = 1.0 - distFromCenter * 0.6;
+      // Mix in a small random wobble per-frame via animation value
+      final wobble = 0.85 + 0.15 * sin(_controller.value * 2 * pi + i * 0.7);
+      return (0.15 + normalized * 0.85 * envelope * wobble).clamp(0.05, 1.0);
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
       animation: _controller,
       builder: (context, child) {
+        final amplitudes = widget.soundLevel != null
+            ? _amplitudesFromSoundLevel(widget.soundLevel!)
+            : _randomAmplitudes;
         return CustomPaint(
           size: Size(double.infinity, widget.height),
           painter: WaveformPainter(
-            amplitudes: _amplitudes,
+            amplitudes: amplitudes,
             color: widget.color ?? AppColors.primary,
             animationValue: _controller.value,
           ),

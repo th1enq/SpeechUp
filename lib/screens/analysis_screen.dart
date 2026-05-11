@@ -1,16 +1,22 @@
+
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../theme/app_colors.dart';
+import '../models/pronunciation_result.dart';
 import '../widgets/shared_widgets.dart';
 
 class AnalysisScreen extends StatefulWidget {
   final String transcript;
   final int durationSeconds;
 
+  /// Azure Pronunciation Assessment result (null when Azure is unavailable).
+  final PronunciationResult? pronunciationResult;
+
   const AnalysisScreen({
     super.key,
     required this.transcript,
     required this.durationSeconds,
+    this.pronunciationResult,
   });
 
   @override
@@ -49,8 +55,11 @@ class _AnalysisScreenState extends State<AnalysisScreen>
     super.dispose();
   }
 
+  TextStyle get _base => GoogleFonts.plusJakartaSans();
+
   @override
   Widget build(BuildContext context) {
+    final c = context.colors;
     final words = widget.transcript.split(' ');
     final fillerWords =
         words.where((w) => w.contains('ờ') || w.contains('à')).length;
@@ -60,19 +69,23 @@ class _AnalysisScreenState extends State<AnalysisScreen>
             ? (totalWords / widget.durationSeconds * 60).round()
             : 0;
 
+    final pr = widget.pronunciationResult;
+    final hasAzure = pr != null && pr.accuracyScore > 0;
+
     return Scaffold(
-      backgroundColor: AppColors.background,
+      backgroundColor: c.scaffoldBg,
       appBar: AppBar(
         title: Text(
           'Kết quả phân tích',
-          style: GoogleFonts.varelaRound(
-            fontWeight: FontWeight.w700,
-            color: AppColors.textPrimary,
+          style: _base.copyWith(
+            fontWeight: FontWeight.w800,
+            color: c.textHeading,
           ),
         ),
         backgroundColor: Colors.transparent,
+        elevation: 0,
         leading: IconButton(
-          icon: const Icon(Icons.close_rounded),
+          icon: Icon(Icons.close_rounded, color: c.textHeading),
           onPressed: () => Navigator.of(context).pop(),
         ),
       ),
@@ -81,20 +94,20 @@ class _AnalysisScreenState extends State<AnalysisScreen>
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  const SizedBox(
+                  SizedBox(
                     width: 48,
                     height: 48,
                     child: CircularProgressIndicator(
                       strokeWidth: 3,
-                      color: AppColors.primary,
+                      color: c.accentBlue,
                     ),
                   ),
                   const SizedBox(height: 20),
                   Text(
                     'Đang phân tích...',
-                    style: GoogleFonts.nunito(
+                    style: _base.copyWith(
                       fontSize: 16,
-                      color: AppColors.textMuted,
+                      color: c.textMuted,
                     ),
                   ),
                 ],
@@ -109,16 +122,39 @@ class _AnalysisScreenState extends State<AnalysisScreen>
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      // Overall feedback
-                      _buildOverallCard(),
-                      const SizedBox(height: 20),
+                      // ── Overall score hero card ──
+                      _buildOverallCard(c, hasAzure, pr),
+                      const SizedBox(height: 24),
 
-                      // Metrics
+                      // ── Azure Pronunciation Scores ──
+                      if (hasAzure) ...[
+                        Text(
+                          'Đánh giá phát âm',
+                          style: _base.copyWith(
+                            fontSize: 18,
+                            fontWeight: FontWeight.w800,
+                            color: c.textHeading,
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+                        _AzureScoreGrid(
+                          animation: _progressAnimation,
+                          accuracy: pr.accuracyScore,
+                          fluency: pr.fluencyScore,
+                          completeness: pr.completenessScore,
+                          prosody: pr.prosodyScore,
+                          c: c,
+                        ),
+                        const SizedBox(height: 24),
+                      ],
+
+                      // ── Basic metrics ──
                       Text(
                         'Chi tiết',
-                        style: GoogleFonts.varelaRound(
+                        style: _base.copyWith(
                           fontSize: 18,
-                          fontWeight: FontWeight.w700,
+                          fontWeight: FontWeight.w800,
+                          color: c.textHeading,
                         ),
                       ),
                       const SizedBox(height: 12),
@@ -130,15 +166,16 @@ class _AnalysisScreenState extends State<AnalysisScreen>
                         progress: _progressAnimation.value *
                             (wordsPerMinute.clamp(0, 180) / 180),
                         color: wordsPerMinute > 160
-                            ? AppColors.feedbackAttention
+                            ? c.feedbackAttention
                             : wordsPerMinute > 120
-                                ? AppColors.feedbackWarning
-                                : AppColors.feedbackGood,
+                                ? c.feedbackWarning
+                                : c.feedbackGood,
                         hint: wordsPerMinute > 160
                             ? 'Hơi nhanh, thử chậm lại nhé'
                             : wordsPerMinute > 120
                                 ? 'Khá tốt rồi!'
                                 : 'Tốc độ rất tốt!',
+                        c: c,
                       ),
                       const SizedBox(height: 14),
 
@@ -149,75 +186,104 @@ class _AnalysisScreenState extends State<AnalysisScreen>
                         progress: _progressAnimation.value *
                             (fillerWords.clamp(0, 10) / 10),
                         color: fillerWords > 5
-                            ? AppColors.feedbackAttention
+                            ? c.feedbackAttention
                             : fillerWords > 2
-                                ? AppColors.feedbackWarning
-                                : AppColors.feedbackGood,
+                                ? c.feedbackWarning
+                                : c.feedbackGood,
                         hint: fillerWords > 5
                             ? 'Thử giảm từ đệm nhé'
                             : fillerWords > 2
                                 ? 'Không nhiều, tiếp tục cải thiện'
                                 : 'Rất ít từ đệm, tuyệt vời!',
+                        c: c,
                       ),
                       const SizedBox(height: 14),
 
-                      // Fluency
+                      // Fluency (from Azure or local estimate)
                       _MetricBar(
                         label: 'Độ trôi chảy',
-                        value: 'Khá tốt',
-                        progress: _progressAnimation.value * 0.72,
-                        color: AppColors.feedbackGood,
-                        hint: 'Bạn nói trôi chảy phần lớn thời gian',
+                        value: hasAzure
+                            ? '${pr.fluencyScore.round()}%'
+                            : 'Khá tốt',
+                        progress: _progressAnimation.value *
+                            (hasAzure ? pr.fluencyScore / 100 : 0.72),
+                        color: c.feedbackGood,
+                        hint: hasAzure
+                            ? _fluencyHint(pr.fluencyScore)
+                            : 'Bạn nói trôi chảy phần lớn thời gian',
+                        c: c,
                       ),
                       const SizedBox(height: 24),
 
-                      // Transcript with highlights
-                      Text(
-                        'Bản ghi lời nói',
-                        style: GoogleFonts.varelaRound(
-                          fontSize: 18,
-                          fontWeight: FontWeight.w700,
+                      // ── Word-level highlights (if Azure available) ──
+                      if (hasAzure && pr.words.isNotEmpty) ...[
+                        Text(
+                          'Phát âm từng từ',
+                          style: _base.copyWith(
+                            fontSize: 18,
+                            fontWeight: FontWeight.w800,
+                            color: c.textHeading,
+                          ),
                         ),
-                      ),
-                      const SizedBox(height: 12),
-                      _buildTranscript(words),
-                      const SizedBox(height: 24),
+                        const SizedBox(height: 12),
+                        _buildAzureWordHighlights(pr.words, c),
+                        const SizedBox(height: 24),
+                      ] else ...[
+                        // Fallback transcript with filler highlights
+                        Text(
+                          'Bản ghi lời nói',
+                          style: _base.copyWith(
+                            fontSize: 18,
+                            fontWeight: FontWeight.w800,
+                            color: c.textHeading,
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        _buildTranscript(words, c),
+                        const SizedBox(height: 24),
+                      ],
 
-                      // AI feedback
+                      // ── AI feedback ──
                       Text(
                         'Lời khuyên',
-                        style: GoogleFonts.varelaRound(
+                        style: _base.copyWith(
                           fontSize: 18,
-                          fontWeight: FontWeight.w700,
+                          fontWeight: FontWeight.w800,
+                          color: c.textHeading,
                         ),
                       ),
                       const SizedBox(height: 12),
-                      const FeedbackCard(
-                        message:
-                            'Bạn đã truyền đạt nội dung rất rõ ràng! Hãy thử hít một hơi sâu và nói chậm lại một nhịp ở đoạn giữa nhé. Việc giảm bớt từ đệm sẽ giúp bài nói thêm tự tin.',
-                        feedbackColor: AppColors.feedbackGood,
+                      FeedbackCard(
+                        message: hasAzure
+                            ? _buildAzureAdvice(pr)
+                            : 'Bạn đã truyền đạt nội dung rất rõ ràng! Hãy thử hít '
+                                'một hơi sâu và nói chậm lại một nhịp ở đoạn giữa nhé. '
+                                'Việc giảm bớt từ đệm sẽ giúp bài nói thêm tự tin.',
+                        feedbackColor: c.feedbackGood,
                         icon: Icons.auto_awesome_rounded,
                       ),
                       const SizedBox(height: 24),
 
-                      // Action buttons
+                      // ── Action buttons ──
                       Row(
                         children: [
                           Expanded(
-                            child: OutlinedButton.icon(
-                              onPressed: () => Navigator.of(context).pop(),
-                              icon: const Icon(Icons.refresh_rounded),
-                              label: const Text('Thử lại'),
+                            child: _ActionButton(
+                              onTap: () => Navigator.of(context).pop(),
+                              icon: Icons.refresh_rounded,
+                              label: 'Thử lại',
+                              filled: false,
+                              c: c,
                             ),
                           ),
                           const SizedBox(width: 12),
                           Expanded(
-                            child: ElevatedButton.icon(
-                              onPressed: () {
-                                Navigator.of(context).pop();
-                              },
-                              icon: const Icon(Icons.save_rounded),
-                              label: const Text('Lưu'),
+                            child: _ActionButton(
+                              onTap: () => Navigator.of(context).pop(),
+                              icon: Icons.check_circle_rounded,
+                              label: 'Hoàn tất',
+                              filled: true,
+                              c: c,
                             ),
                           ),
                         ],
@@ -230,19 +296,36 @@ class _AnalysisScreenState extends State<AnalysisScreen>
     );
   }
 
-  Widget _buildOverallCard() {
+  // ── Overall Hero Card ──
+  Widget _buildOverallCard(
+    AppColorsExtension c,
+    bool hasAzure,
+    PronunciationResult? pr,
+  ) {
+    final overallScore = hasAzure ? pr!.overallScore : null;
+    final emoji = overallScore != null
+        ? (overallScore >= 80
+            ? '🌟'
+            : overallScore >= 60
+                ? '👍'
+                : '💪')
+        : '👍';
+    final title = overallScore != null
+        ? (overallScore >= 80
+            ? 'Xuất sắc!'
+            : overallScore >= 60
+                ? 'Khá tốt!'
+                : 'Tiếp tục luyện tập!')
+        : 'Bạn đã làm rất tốt!';
+
     return Container(
       padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [Color(0xFF059669), Color(0xFF34D399)],
-        ),
+        gradient: c.heroGradient,
         borderRadius: BorderRadius.circular(24),
         boxShadow: [
           BoxShadow(
-            color: AppColors.cta.withValues(alpha: 0.35),
+            color: c.accentBlueDeep.withValues(alpha: 0.35),
             blurRadius: 20,
             offset: const Offset(0, 8),
           ),
@@ -257,11 +340,22 @@ class _AnalysisScreenState extends State<AnalysisScreen>
               shape: BoxShape.circle,
               color: Colors.white.withValues(alpha: 0.2),
             ),
-            child: const Icon(
-              Icons.thumb_up_rounded,
-              color: Colors.white,
-              size: 32,
-            ),
+            child: overallScore != null
+                ? Center(
+                    child: Text(
+                      '${overallScore.round()}',
+                      style: _base.copyWith(
+                        fontSize: 22,
+                        fontWeight: FontWeight.w900,
+                        color: Colors.white,
+                      ),
+                    ),
+                  )
+                : const Icon(
+                    Icons.thumb_up_rounded,
+                    color: Colors.white,
+                    size: 32,
+                  ),
           ),
           const SizedBox(width: 16),
           Expanded(
@@ -269,18 +363,21 @@ class _AnalysisScreenState extends State<AnalysisScreen>
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Bạn đã làm rất tốt!',
-                  style: GoogleFonts.varelaRound(
+                  '$emoji $title',
+                  style: _base.copyWith(
                     fontSize: 20,
-                    fontWeight: FontWeight.w700,
+                    fontWeight: FontWeight.w800,
                     color: Colors.white,
                   ),
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  'Tiếp tục phát huy nhé 💪',
-                  style: GoogleFonts.nunito(
+                  overallScore != null
+                      ? 'Điểm tổng: ${overallScore.round()}/100'
+                      : 'Tiếp tục phát huy nhé 💪',
+                  style: _base.copyWith(
                     fontSize: 14,
+                    fontWeight: FontWeight.w600,
                     color: Colors.white.withValues(alpha: 0.9),
                   ),
                 ),
@@ -292,9 +389,84 @@ class _AnalysisScreenState extends State<AnalysisScreen>
     );
   }
 
-  Widget _buildTranscript(List<String> words) {
-    return ClayContainer(
+  // ── Azure word highlights (color-coded by accuracy) ──
+  Widget _buildAzureWordHighlights(List<WordResult> words, AppColorsExtension c) {
+    return Container(
       padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: c.cardBg,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: c.borderColor.withValues(alpha: 0.6)),
+        boxShadow: [
+          BoxShadow(
+            color: c.shadowColor,
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Wrap(
+        spacing: 5,
+        runSpacing: 6,
+        children: words.map((w) {
+          Color bgColor;
+          Color textColor;
+
+          if (w.hasError) {
+            bgColor = c.error.withValues(alpha: 0.12);
+            textColor = c.error;
+          } else if (w.accuracyScore >= 80) {
+            bgColor = c.feedbackGood.withValues(alpha: 0.1);
+            textColor = c.feedbackGood;
+          } else if (w.accuracyScore >= 50) {
+            bgColor = c.feedbackWarning.withValues(alpha: 0.12);
+            textColor = c.feedbackWarning;
+          } else {
+            bgColor = c.error.withValues(alpha: 0.1);
+            textColor = c.error;
+          }
+
+          return Tooltip(
+            message: w.hasError
+                ? '${w.errorType} — ${w.accuracyScore.round()}%'
+                : '${w.accuracyScore.round()}%',
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+              decoration: BoxDecoration(
+                color: bgColor,
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: Text(
+                w.word,
+                style: _base.copyWith(
+                  fontSize: 15,
+                  color: textColor,
+                  fontWeight: w.hasError ? FontWeight.w800 : FontWeight.w600,
+                ),
+              ),
+            ),
+          );
+        }).toList(),
+      ),
+    );
+  }
+
+  // ── Fallback transcript with filler word highlights ──
+  Widget _buildTranscript(List<String> words, AppColorsExtension c) {
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: c.cardBg,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: c.borderColor.withValues(alpha: 0.6)),
+        boxShadow: [
+          BoxShadow(
+            color: c.shadowColor,
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
       child: Wrap(
         spacing: 4,
         runSpacing: 4,
@@ -302,11 +474,11 @@ class _AnalysisScreenState extends State<AnalysisScreen>
           final isFiller = word.contains('ờ') || word.contains('à');
 
           Color bgColor = Colors.transparent;
-          Color textColor = AppColors.textPrimary;
+          Color textColor = c.textBody;
 
           if (isFiller) {
-            bgColor = AppColors.feedbackWarning.withValues(alpha: 0.15);
-            textColor = AppColors.feedbackWarning;
+            bgColor = c.feedbackWarning.withValues(alpha: 0.15);
+            textColor = c.feedbackWarning;
           }
 
           return Container(
@@ -317,7 +489,7 @@ class _AnalysisScreenState extends State<AnalysisScreen>
             ),
             child: Text(
               word,
-              style: GoogleFonts.nunito(
+              style: _base.copyWith(
                 fontSize: 15,
                 color: textColor,
                 fontWeight: isFiller ? FontWeight.w700 : FontWeight.w500,
@@ -328,14 +500,218 @@ class _AnalysisScreenState extends State<AnalysisScreen>
       ),
     );
   }
+
+  String _fluencyHint(double score) {
+    if (score >= 85) return 'Bạn nói rất trôi chảy, tuyệt vời!';
+    if (score >= 65) return 'Tốt lắm! Thử giảm khoảng dừng để tốt hơn.';
+    return 'Hãy luyện thêm nhé, nói chậm rãi và tự tin hơn.';
+  }
+
+  String _buildAzureAdvice(PronunciationResult pr) {
+    final parts = <String>[];
+
+    if (pr.accuracyScore >= 85) {
+      parts.add('Phát âm của bạn rất chính xác!');
+    } else if (pr.accuracyScore >= 60) {
+      parts.add(
+          'Phát âm khá tốt. Hãy chú ý các từ được đánh dấu để cải thiện.');
+    } else {
+      parts.add(
+          'Hãy luyện phát âm thêm nhé. Thử nghe mẫu và lặp lại từng từ.');
+    }
+
+    if (pr.fluencyScore < 70) {
+      parts.add('Thử nói trôi chảy hơn bằng cách giảm bớt khoảng dừng.');
+    }
+
+    if (pr.completenessScore < 80) {
+      parts.add('Bạn đã bỏ sót một số từ. Hãy đọc hết câu nhé.');
+    }
+
+    if (pr.prosodyScore > 0 && pr.prosodyScore < 60) {
+      parts.add('Hãy thử thay đổi ngữ điệu để bài nói tự nhiên hơn.');
+    }
+
+    return parts.join(' ');
+  }
 }
 
+// ── Azure score grid: 2x2 circular score cards ──
+class _AzureScoreGrid extends StatelessWidget {
+  final Animation<double> animation;
+  final double accuracy;
+  final double fluency;
+  final double completeness;
+  final double prosody;
+  final AppColorsExtension c;
+
+  const _AzureScoreGrid({
+    required this.animation,
+    required this.accuracy,
+    required this.fluency,
+    required this.completeness,
+    required this.prosody,
+    required this.c,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Expanded(
+          child: Column(
+            children: [
+              _ScoreCircleCard(
+                label: 'Chính xác',
+                score: accuracy,
+                icon: Icons.gps_fixed_rounded,
+                color: c.accentBlue,
+                animation: animation,
+                c: c,
+              ),
+              const SizedBox(height: 12),
+              _ScoreCircleCard(
+                label: 'Đầy đủ',
+                score: completeness,
+                icon: Icons.checklist_rounded,
+                color: c.accentPurple,
+                animation: animation,
+                c: c,
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            children: [
+              _ScoreCircleCard(
+                label: 'Trôi chảy',
+                score: fluency,
+                icon: Icons.waves_rounded,
+                color: c.feedbackGood,
+                animation: animation,
+                c: c,
+              ),
+              const SizedBox(height: 12),
+              _ScoreCircleCard(
+                label: 'Ngữ điệu',
+                score: prosody,
+                icon: Icons.music_note_rounded,
+                color: c.feedbackWarning,
+                animation: animation,
+                c: c,
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _ScoreCircleCard extends StatelessWidget {
+  final String label;
+  final double score;
+  final IconData icon;
+  final Color color;
+  final Animation<double> animation;
+  final AppColorsExtension c;
+
+  const _ScoreCircleCard({
+    required this.label,
+    required this.score,
+    required this.icon,
+    required this.color,
+    required this.animation,
+    required this.c,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final base = GoogleFonts.plusJakartaSans();
+    final animatedScore = (score * animation.value).round();
+    final animatedProgress = (score / 100 * animation.value).clamp(0.0, 1.0);
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 18),
+      decoration: BoxDecoration(
+        color: c.cardBg,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: c.borderColor.withValues(alpha: 0.5)),
+        boxShadow: [
+          BoxShadow(
+            color: c.shadowColor,
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          SizedBox(
+            width: 64,
+            height: 64,
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                SizedBox(
+                  width: 64,
+                  height: 64,
+                  child: CircularProgressIndicator(
+                    value: animatedProgress,
+                    strokeWidth: 5,
+                    backgroundColor: color.withValues(alpha: 0.12),
+                    valueColor: AlwaysStoppedAnimation(color),
+                    strokeCap: StrokeCap.round,
+                  ),
+                ),
+                Text(
+                  '$animatedScore',
+                  style: base.copyWith(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w900,
+                    color: c.textHeading,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 10),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 14, color: color),
+              const SizedBox(width: 4),
+              Flexible(
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: base.copyWith(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: c.textMuted,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ── Metric bar (existing design, updated for theme) ──
 class _MetricBar extends StatelessWidget {
   final String label;
   final String value;
   final double progress;
   final Color color;
   final String hint;
+  final AppColorsExtension c;
 
   const _MetricBar({
     required this.label,
@@ -343,12 +719,26 @@ class _MetricBar extends StatelessWidget {
     required this.progress,
     required this.color,
     required this.hint,
+    required this.c,
   });
 
   @override
   Widget build(BuildContext context) {
-    return ClayContainer(
+    final base = GoogleFonts.plusJakartaSans();
+    return Container(
       padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: c.cardBg,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: c.borderColor.withValues(alpha: 0.5)),
+        boxShadow: [
+          BoxShadow(
+            color: c.shadowColor,
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -357,10 +747,10 @@ class _MetricBar extends StatelessWidget {
             children: [
               Text(
                 label,
-                style: const TextStyle(
+                style: base.copyWith(
                   fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                  color: AppColors.textPrimary,
+                  fontWeight: FontWeight.w700,
+                  color: c.textHeading,
                 ),
               ),
               Container(
@@ -372,9 +762,9 @@ class _MetricBar extends StatelessWidget {
                 ),
                 child: Text(
                   value,
-                  style: TextStyle(
+                  style: base.copyWith(
                     fontSize: 13,
-                    fontWeight: FontWeight.w700,
+                    fontWeight: FontWeight.w800,
                     color: color,
                   ),
                 ),
@@ -394,12 +784,75 @@ class _MetricBar extends StatelessWidget {
           const SizedBox(height: 8),
           Text(
             hint,
-            style: TextStyle(
+            style: base.copyWith(
               fontSize: 12,
-              color: AppColors.textMuted,
+              fontWeight: FontWeight.w500,
+              color: c.textMuted,
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+// ── Action button ──
+class _ActionButton extends StatelessWidget {
+  final VoidCallback onTap;
+  final IconData icon;
+  final String label;
+  final bool filled;
+  final AppColorsExtension c;
+
+  const _ActionButton({
+    required this.onTap,
+    required this.icon,
+    required this.label,
+    required this.filled,
+    required this.c,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final base = GoogleFonts.plusJakartaSans();
+    return SizedBox(
+      height: 52,
+      child: Material(
+        color: filled ? null : c.cardBg,
+        borderRadius: BorderRadius.circular(16),
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(16),
+          child: Ink(
+            decoration: BoxDecoration(
+              gradient: filled ? c.heroGradient : null,
+              color: filled ? null : c.cardBg,
+              borderRadius: BorderRadius.circular(16),
+              border: filled
+                  ? null
+                  : Border.all(color: c.borderColor),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  icon,
+                  size: 20,
+                  color: filled ? Colors.white : c.textHeading,
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  label,
+                  style: base.copyWith(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w800,
+                    color: filled ? Colors.white : c.textHeading,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }

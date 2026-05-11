@@ -1,4 +1,3 @@
-import 'dart:async';
 
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
@@ -40,14 +39,18 @@ class _LoginScreenState extends State<LoginScreen> {
   final _credentialFormKey = GlobalKey<FormState>();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
+  final _nameController = TextEditingController();
 
-  /// Login: 0 = email, 1 = password. Sign-up: 0 = email, 1 = password.
-  int _step = 0;
   bool _isLogin = true;
   bool _isLoading = false;
   bool _googleLoading = false;
   bool _obscurePassword = true;
   String? _errorMessage;
+
+  // Per-field error states for red border highlighting
+  String? _emailError;
+  String? _passwordError;
+  String? _nameError;
 
   String? _selectedLanguageDisplay;
   final Set<String> _selectedPurposeKeys = {};
@@ -77,6 +80,7 @@ class _LoginScreenState extends State<LoginScreen> {
   void dispose() {
     _emailController.dispose();
     _passwordController.dispose();
+    _nameController.dispose();
     super.dispose();
   }
 
@@ -98,79 +102,63 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   void _goBack() {
-    if (_step > 0) {
-      setState(() {
-        _step--;
-        _errorMessage = null;
-      });
-      return;
-    }
     Navigator.maybePop(context);
   }
 
-  bool _validateEmailStep() {
-    final email = _emailController.text.trim();
+  /// Validates all fields and returns true if valid.
+  bool _validateAllFields() {
     final t = appLanguage.t;
+    final email = _emailController.text.trim();
+    final password = _passwordController.text;
+    bool valid = true;
+
+    // Email validation
     if (email.isEmpty) {
-      setState(() => _errorMessage = t('login.valEmail'));
-      return false;
+      _emailError = t('login.valEmail');
+      valid = false;
+    } else if (!_looksLikeEmail(email)) {
+      _emailError = t('login.valEmailInvalid');
+      valid = false;
+    } else {
+      _emailError = null;
     }
-    if (!_looksLikeEmail(email)) {
-      setState(() => _errorMessage = t('login.valEmailInvalid'));
-      return false;
+
+    // Name validation (sign-up only)
+    if (!_isLogin) {
+      final name = _nameController.text.trim();
+      if (name.isEmpty) {
+        _nameError = t('login.valName');
+        valid = false;
+      } else {
+        _nameError = null;
+      }
+    } else {
+      _nameError = null;
     }
-    setState(() => _errorMessage = null);
-    return true;
+
+    // Password validation
+    if (password.isEmpty) {
+      _passwordError = t('login.valPassword');
+      valid = false;
+    } else if (password.length < 6) {
+      _passwordError = t('login.valPasswordShort');
+      valid = false;
+    } else if (!_isLogin && !_isStrongPassword(password)) {
+      _passwordError = t('signup.valPasswordStrong');
+      valid = false;
+    } else {
+      _passwordError = null;
+    }
+
+    setState(() {});
+    return valid;
   }
 
-  Future<void> _onContinueEmail() async {
-    FocusScope.of(context).unfocus();
-    if (!_validateEmailStep()) return;
-
-    final emailForLookup = _emailController.text.trim().toLowerCase();
-
-    if (_firebaseReady) {
-      setState(() {
-        _isLoading = true;
-        _errorMessage = null;
-      });
-      try {
-        final methods =
-            await _authService.fetchSignInMethodsForEmail(emailForLookup);
-        if (!mounted) return;
-
-        String? blocked = _emailGateMessageAfterLookup(methods);
-
-        // If Firebase hides providers (methods empty), use profile collection
-        // as immediate fallback for signup duplicate-email messaging.
-        if (blocked == null && !_isLogin && methods.isEmpty) {
-          final exists = await _firestoreService.isEmailRegistered(emailForLookup);
-          if (!mounted) return;
-          if (exists) {
-            blocked = appLanguage.t('signup.emailAlreadyRegistered');
-          }
-        }
-
-        if (blocked != null) {
-          setState(() {
-            _errorMessage = blocked;
-            _isLoading = false;
-          });
-          return;
-        }
-      } catch (e) {
-        if (!mounted) return;
-        setState(() {
-          _errorMessage = e.toString();
-          _isLoading = false;
-        });
-        return;
-      }
-      if (!mounted) return;
-      setState(() => _isLoading = false);
-    }
-
-    setState(() => _step = 1);
+  void _clearFieldErrors() {
+    _emailError = null;
+    _passwordError = null;
+    _nameError = null;
+    _errorMessage = null;
   }
 
   bool _isStrongPassword(String s) {
@@ -180,17 +168,7 @@ class _LoginScreenState extends State<LoginScreen> {
     return true;
   }
 
-  void _signUpContinueFromPassword() {
-    FocusScope.of(context).unfocus();
-    final t = appLanguage.t;
-    final p = _passwordController.text;
-    if (!_isStrongPassword(p)) {
-      setState(() => _errorMessage = t('signup.valPasswordStrong'));
-      return;
-    }
-    setState(() => _errorMessage = null);
-    _completeSignUp();
-  }
+  // _signUpContinueFromPassword removed — validation is now in _validateAllFields
 
   Future<void> _ensureUserProfile(User user) async {
     final existing = await _firestoreService.getUserProfile(user.uid);
@@ -210,7 +188,8 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Future<void> _submitSignIn() async {
-    if (!_credentialFormKey.currentState!.validate()) return;
+    FocusScope.of(context).unfocus();
+    if (!_validateAllFields()) return;
 
     setState(() {
       _isLoading = true;
@@ -218,7 +197,7 @@ class _LoginScreenState extends State<LoginScreen> {
     });
 
     try {
-      final credential = await _authService.signInWithEmail(
+      await _authService.signInWithEmail(
         _emailController.text.trim(),
         _passwordController.text,
       );
@@ -234,39 +213,47 @@ class _LoginScreenState extends State<LoginScreen> {
 
   Future<void> _completeSignUp() async {
     FocusScope.of(context).unfocus();
+    if (!_validateAllFields()) return;
+
     setState(() {
       _isLoading = true;
       _errorMessage = null;
     });
 
     try {
-      // Re-check right before creating account so duplicate-email always surfaces
-      // even when users return to this step after a while.
+      // Re-check right before creating account so duplicate-email always surfaces.
       if (_firebaseReady) {
-        final methods = await _authService.fetchSignInMethodsForEmail(
-          _emailController.text.trim().toLowerCase(),
-        );
+        final emailForLookup = _emailController.text.trim().toLowerCase();
+        final methods = await _authService.fetchSignInMethodsForEmail(emailForLookup);
         if (!mounted) return;
-        if (methods.isNotEmpty) {
+
+        String? blocked = _emailGateMessageAfterLookup(methods);
+        if (blocked == null && methods.isEmpty) {
+          final exists = await _firestoreService.isEmailRegistered(emailForLookup);
+          if (!mounted) return;
+          if (exists) blocked = appLanguage.t('signup.emailAlreadyRegistered');
+        }
+        if (blocked != null) {
           setState(() {
-            _step = 0;
-            _errorMessage = appLanguage.t('signup.emailAlreadyRegistered');
+            _emailError = blocked;
+            _errorMessage = blocked;
             _isLoading = false;
           });
           return;
         }
       }
 
+      final displayName = _nameController.text.trim();
       final credential = await _authService.registerWithEmail(
         _emailController.text.trim(),
         _passwordController.text,
-        _emailController.text.trim().split('@').first,
+        displayName,
       );
       if (credential.user != null) {
         await _firestoreService.createUserProfile(
           UserProfile(
             uid: credential.user!.uid,
-            displayName: _emailController.text.trim().split('@').first,
+            displayName: displayName,
             email: _emailController.text.trim(),
             createdAt: DateTime.now(),
             language: 'English (US)',
@@ -283,7 +270,7 @@ class _LoginScreenState extends State<LoginScreen> {
           raw.contains('already in use');
       setState(() {
         if (duplicate) {
-          _step = 0;
+          _emailError = appLanguage.t('signup.emailAlreadyRegistered');
           _errorMessage = appLanguage.t('signup.emailAlreadyRegistered');
         } else {
           _errorMessage = e.toString();
@@ -523,20 +510,9 @@ class _LoginScreenState extends State<LoginScreen> {
 
   void _onPrimaryButton() {
     if (_isLogin) {
-      if (_step == 0) {
-        unawaited(_onContinueEmail());
-      } else {
-        _submitSignIn();
-      }
-      return;
-    }
-    switch (_step) {
-      case 0:
-        unawaited(_onContinueEmail());
-        break;
-      case 1:
-        _signUpContinueFromPassword();
-        break;
+      _submitSignIn();
+    } else {
+      _completeSignUp();
     }
   }
 
@@ -574,25 +550,12 @@ class _LoginScreenState extends State<LoginScreen> {
 
   String _titleForStep() {
     final t = appLanguage.t;
-    if (_isLogin) {
-      return _step == 0 ? t('login.signInHeadline') : t('login.signInHeadline');
-    }
-    switch (_step) {
-      case 0:
-        return t('login.signUpHeadline');
-      case 1:
-        return t('signup.createPasswordTitle');
-      default:
-        return '';
-    }
+    return _isLogin ? t('login.signInHeadline') : t('login.signUpHeadline');
   }
 
   String _primaryLabel() {
     final t = appLanguage.t;
-    if (_isLogin) {
-      return _step == 0 ? t('login.continue') : t('login.signIn');
-    }
-    return _step == 1 ? t('login.createAccount') : t('login.continue');
+    return _isLogin ? t('login.signIn') : t('login.createAccount');
   }
 
   @override
@@ -644,10 +607,8 @@ class _LoginScreenState extends State<LoginScreen> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
-                          if (_step == 0) ...[
-                            Center(child: _LogoHelloRow(textColor: c.textHeading)),
-                            SizedBox(height: compact ? 20 : 28),
-                          ],
+                          Center(child: _LogoHelloRow(textColor: c.textHeading)),
+                          SizedBox(height: compact ? 20 : 28),
                           Text(
                             _titleForStep(),
                             style: GoogleFonts.plusJakartaSans(
@@ -670,61 +631,31 @@ class _LoginScreenState extends State<LoginScreen> {
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                  AnimatedContainer(
-                    duration: const Duration(milliseconds: 180),
-                    curve: Curves.easeOutCubic,
-                    constraints: const BoxConstraints(minHeight: 56),
-                    margin: const EdgeInsets.only(bottom: 14),
-                    padding: _errorMessage == null
-                        ? EdgeInsets.zero
-                        : const EdgeInsets.symmetric(
-                            horizontal: 14,
-                            vertical: 8,
-                          ),
-                    decoration: BoxDecoration(
-                      color: _errorMessage == null
-                          ? Colors.transparent
-                          : AppColors.error.withValues(alpha: 0.08),
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(
-                        color: _errorMessage == null
-                            ? Colors.transparent
-                            : AppColors.error.withValues(alpha: 0.25),
-                      ),
-                    ),
-                    child: _errorMessage == null
-                        ? null
-                        : Row(
-                            crossAxisAlignment: CrossAxisAlignment.center,
-                            children: [
-                              Icon(
-                                Icons.error_outline_rounded,
-                                color: AppColors.error,
-                                size: 20,
-                              ),
-                              const SizedBox(width: 10),
-                              Expanded(
-                                child: Text(
-                                  _errorMessage!,
-                                  maxLines: 3,
-                                  overflow: TextOverflow.fade,
-                                  style: base.copyWith(
-                                    fontSize: 13,
-                                    fontWeight: FontWeight.w600,
-                                    color: AppColors.error,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                  ),
+                  const SizedBox(height: 8),
                   _PrimaryBlueButton(
                     label: _primaryLabel(),
                     loading: _isLoading,
                     onPressed: _onPrimaryButton,
                   ),
-                  if (_step == 0) ...[
-                    const SizedBox(height: 28),
+                    const SizedBox(height: 16),
+                    Center(
+                      child: TextButton(
+                        onPressed: () => _showForgotPassword(context),
+                        style: TextButton.styleFrom(
+                          foregroundColor: c.textMuted,
+                        ),
+                        child: Text(
+                          t('login.forgotPassword'),
+                          style: base.copyWith(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                            decoration: TextDecoration.underline,
+                            decorationColor: c.textMuted,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 20),
                     _OrDivider(label: t('login.or'), mutedColor: c.textMuted),
                     const SizedBox(height: 22),
                     _GoogleSignInButton(
@@ -744,35 +675,15 @@ class _LoginScreenState extends State<LoginScreen> {
                       onToggle: () {
                         setState(() {
                           _isLogin = !_isLogin;
-                          _step = 0;
-                          _errorMessage = null;
+                          _clearFieldErrors();
                           _passwordController.clear();
+                          _nameController.clear();
                           _selectedLanguageDisplay = null;
                           _selectedPurposeKeys.clear();
                           _credentialFormKey.currentState?.reset();
                         });
                       },
                     ),
-                  ] else if (_isLogin && _step == 1) ...[
-                    const SizedBox(height: 16),
-                    Center(
-                      child: TextButton(
-                        onPressed: () => _showForgotPassword(context),
-                        style: TextButton.styleFrom(
-                          foregroundColor: c.textMuted,
-                        ),
-                        child: Text(
-                          t('login.forgotPassword'),
-                          style: base.copyWith(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w600,
-                            decoration: TextDecoration.underline,
-                            decorationColor: c.textMuted,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
                         ],
                       ),
                     ),
@@ -786,13 +697,15 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 
-  List<Widget> _buildEmailFieldSection(
+  List<Widget> _buildStepContent(
     BuildContext context,
     TextStyle base,
     AppColorsExtension c,
   ) {
     final t = appLanguage.t;
+
     return [
+      // ── Email field ──
       Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -802,7 +715,7 @@ class _LoginScreenState extends State<LoginScreen> {
               style: base.copyWith(
                 fontSize: 13,
                 fontWeight: FontWeight.w600,
-                color: c.textMuted,
+                color: _emailError != null ? AppColors.error : c.textMuted,
               ),
             ),
           ),
@@ -839,145 +752,151 @@ class _LoginScreenState extends State<LoginScreen> {
           context,
           hint: t('login.emailHint'),
           fill: _fieldFill(context),
+          errorText: _emailError,
         ),
-        onSubmitted: (_) => unawaited(_onContinueEmail()),
+        onChanged: (_) {
+          if (_emailError != null) setState(() => _emailError = null);
+        },
       ),
-    ];
-  }
+      const SizedBox(height: 18),
 
-  List<Widget> _buildStepContent(
-    BuildContext context,
-    TextStyle base,
-    AppColorsExtension c,
-  ) {
-    final t = appLanguage.t;
+      // ── Full Name field (sign-up only) ──
+      if (!_isLogin) ...[
+        Text(
+          t('login.fullName'),
+          style: base.copyWith(
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
+            color: _nameError != null ? AppColors.error : c.textMuted,
+          ),
+        ),
+        const SizedBox(height: 8),
+        TextField(
+          controller: _nameController,
+          textCapitalization: TextCapitalization.words,
+          style: base.copyWith(
+            fontSize: 16,
+            fontWeight: FontWeight.w600,
+            color: c.textHeading,
+          ),
+          decoration: _filledDecoration(
+            context,
+            hint: t('signup.usernameHint'),
+            fill: _fieldFill(context),
+            errorText: _nameError,
+          ),
+          onChanged: (_) {
+            if (_nameError != null) setState(() => _nameError = null);
+          },
+        ),
+        const SizedBox(height: 18),
+      ],
 
-    if (_isLogin) {
-      if (_step == 0) {
-        return _buildEmailFieldSection(context, base, c);
-      }
-      return [
-        Form(
-          key: _credentialFormKey,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
+      // ── Password field ──
+      Text(
+        t('login.password'),
+        style: base.copyWith(
+          fontSize: 13,
+          fontWeight: FontWeight.w600,
+          color: _passwordError != null ? AppColors.error : c.textMuted,
+        ),
+      ),
+      const SizedBox(height: 8),
+      TextField(
+        controller: _passwordController,
+        obscureText: _obscurePassword,
+        style: base.copyWith(
+          fontSize: 16,
+          fontWeight: FontWeight.w600,
+          color: c.textHeading,
+        ),
+        decoration: _filledDecoration(
+          context,
+          hint: t('signup.passwordHint'),
+          fill: _fieldFill(context),
+          errorText: _passwordError,
+        ).copyWith(
+          suffixIcon: IconButton(
+            icon: Icon(
+              _obscurePassword
+                  ? Icons.visibility_off_outlined
+                  : Icons.visibility_outlined,
+              color: c.textMuted,
+              size: 22,
+            ),
+            onPressed: () =>
+                setState(() => _obscurePassword = !_obscurePassword),
+          ),
+        ),
+        onChanged: (_) {
+          if (_passwordError != null) setState(() => _passwordError = null);
+        },
+        onSubmitted: (_) => _onPrimaryButton(),
+      ),
+      if (!_isLogin) ...[
+        const SizedBox(height: 8),
+        Text.rich(
+          TextSpan(
+            style: base.copyWith(
+              fontSize: 12,
+              fontWeight: FontWeight.w400,
+              color: c.textMuted,
+              height: 1.45,
+            ),
             children: [
-              Text(
-                t('login.password'),
+              TextSpan(text: t('signup.passwordHelperBefore')),
+              TextSpan(
+                text: t('signup.passwordHelperBold'),
                 style: base.copyWith(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                  color: c.textMuted,
-                ),
-              ),
-              const SizedBox(height: 8),
-              TextFormField(
-                controller: _passwordController,
-                obscureText: _obscurePassword,
-                style: base.copyWith(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
                   color: c.textHeading,
                 ),
-                decoration: _filledDecoration(
-                  context,
-                  hint: t('signup.passwordHint'),
-                  fill: _fieldFill(context),
-                ).copyWith(
-                  suffixIcon: IconButton(
-                    icon: Icon(
-                      _obscurePassword
-                          ? Icons.visibility_off_outlined
-                          : Icons.visibility_outlined,
-                      color: c.textMuted,
-                      size: 22,
-                    ),
-                    onPressed: () =>
-                        setState(() => _obscurePassword = !_obscurePassword),
-                  ),
-                ),
-                validator: (value) {
-                  if (value == null || value.isEmpty) {
-                    return t('login.valPassword');
-                  }
-                  if (value.length < 6) {
-                    return t('login.valPasswordShort');
-                  }
-                  return null;
-                },
               ),
             ],
           ),
         ),
-      ];
-    }
+      ],
 
-    switch (_step) {
-      case 0:
-        return _buildEmailFieldSection(context, base, c);
-      case 1:
-        return [
-          Text.rich(
-            TextSpan(
-              style: base.copyWith(
-                fontSize: 14,
-                fontWeight: FontWeight.w400,
-                color: c.textMuted,
-                height: 1.45,
+      // ── General error banner ──
+      if (_errorMessage != null) ...[
+        const SizedBox(height: 16),
+        AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          curve: Curves.easeOutCubic,
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          decoration: BoxDecoration(
+            color: AppColors.error.withValues(alpha: 0.08),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: AppColors.error.withValues(alpha: 0.25),
+            ),
+          ),
+          child: Row(
+            children: [
+              Icon(
+                Icons.error_outline_rounded,
+                color: AppColors.error,
+                size: 20,
               ),
-              children: [
-                TextSpan(text: t('signup.passwordHelperBefore')),
-                TextSpan(
-                  text: t('signup.passwordHelperBold'),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  _errorMessage!,
+                  maxLines: 3,
+                  overflow: TextOverflow.fade,
                   style: base.copyWith(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w800,
-                    color: c.textHeading,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.error,
                   ),
                 ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 16),
-          Text(
-            t('login.password'),
-            style: base.copyWith(
-              fontSize: 13,
-              fontWeight: FontWeight.w600,
-              color: c.textMuted,
-            ),
-          ),
-          const SizedBox(height: 8),
-          TextField(
-            controller: _passwordController,
-            obscureText: _obscurePassword,
-            style: base.copyWith(
-              fontSize: 16,
-              fontWeight: FontWeight.w600,
-              color: c.textHeading,
-            ),
-            decoration: _filledDecoration(
-              context,
-              hint: t('signup.passwordHint'),
-              fill: _fieldFill(context),
-            ).copyWith(
-              suffixIcon: IconButton(
-                icon: Icon(
-                  _obscurePassword
-                      ? Icons.visibility_off_outlined
-                      : Icons.visibility_outlined,
-                  color: c.textMuted,
-                  size: 22,
-                ),
-                onPressed: () =>
-                    setState(() => _obscurePassword = !_obscurePassword),
               ),
-            ),
+            ],
           ),
-        ];
-      default:
-        return [];
-    }
+        ),
+      ],
+    ];
   }
 
   IconData _purposeIcon(String key) {
@@ -1001,10 +920,12 @@ class _LoginScreenState extends State<LoginScreen> {
     BuildContext context, {
     required String hint,
     required Color fill,
+    String? errorText,
   }) {
     final base = GoogleFonts.plusJakartaSans();
     final c = context.colors;
     final radius = BorderRadius.circular(14);
+    final hasError = errorText != null;
 
     return InputDecoration(
       hintText: hint,
@@ -1014,23 +935,35 @@ class _LoginScreenState extends State<LoginScreen> {
         color: c.textMuted.withValues(alpha: 0.75),
       ),
       filled: true,
-      fillColor: fill,
+      fillColor: hasError ? AppColors.error.withValues(alpha: 0.04) : fill,
       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+      errorText: errorText,
+      errorMaxLines: 2,
+      errorStyle: base.copyWith(
+        fontSize: 12,
+        fontWeight: FontWeight.w600,
+        color: AppColors.error,
+      ),
       border: OutlineInputBorder(
         borderRadius: radius,
         borderSide: BorderSide.none,
       ),
       enabledBorder: OutlineInputBorder(
         borderRadius: radius,
-        borderSide: BorderSide.none,
+        borderSide: hasError
+            ? BorderSide(color: AppColors.error.withValues(alpha: 0.6), width: 1.5)
+            : BorderSide.none,
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: radius,
-        borderSide: const BorderSide(color: AppColors.onboardingBlue, width: 1.5),
+        borderSide: BorderSide(
+          color: hasError ? AppColors.error : AppColors.onboardingBlue,
+          width: 1.5,
+        ),
       ),
       errorBorder: OutlineInputBorder(
         borderRadius: radius,
-        borderSide: BorderSide(color: AppColors.error.withValues(alpha: 0.45)),
+        borderSide: BorderSide(color: AppColors.error.withValues(alpha: 0.6), width: 1.5),
       ),
       focusedErrorBorder: OutlineInputBorder(
         borderRadius: radius,
