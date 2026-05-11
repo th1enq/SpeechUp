@@ -7,6 +7,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../main.dart' show isFirebaseSupported;
 import '../l10n/app_language.dart';
 import '../services/speech_input_service.dart';
+import '../services/cloud_speech_service.dart';
+import '../services/native_speech_service.dart';
 import '../services/google_tts_service.dart';
 import '../services/local_tts_service.dart';
 import '../services/llm_chat_service.dart';
@@ -473,6 +475,10 @@ class _ConversationChatState extends State<_ConversationChat> {
   bool _useLlm = false;
   final TextEditingController _textInputController = TextEditingController();
   bool _showTextInput = false;
+  final CloudSpeechService _cloudSpeechService = CloudSpeechService();
+  final NativeSpeechService _nativeSpeechService = NativeSpeechService();
+  bool _useCloudSpeech = false;
+  bool _useNativeSpeech = false;
 
   // Scripted conversation flows (AI + User full turns).
   static const Map<String, List<_ScriptTurn>> _conversationFlows = {
@@ -534,6 +540,7 @@ class _ConversationChatState extends State<_ConversationChat> {
   void initState() {
     super.initState();
     _speechService = SpeechInputService()..addListener(_handleSpeechUpdate);
+    _nativeSpeechService.addListener(_handleNativeSpeechUpdate);
     _ttsPlayer.onPlayerComplete.listen((_) {
       if (!mounted) return;
       setState(() => _isAiSpeaking = false);
@@ -543,7 +550,7 @@ class _ConversationChatState extends State<_ConversationChat> {
       setState(() => _isAiSpeaking = false);
     };
 
-    // Pre-check mic availability and auto-show text input if unavailable
+    // Pre-check mic availability
     _checkMicAvailability();
 
     // Decide whether to use LLM or scripted flow
@@ -561,15 +568,44 @@ class _ConversationChatState extends State<_ConversationChat> {
   }
 
   Future<void> _checkMicAvailability() async {
-    if (!_speechService.isSupportedPlatform) {
-      if (mounted) setState(() => _showTextInput = true);
-      return;
+    // Try speech_to_text plugin first
+    if (_speechService.isSupportedPlatform) {
+      final available = await _speechService.initialize(localeId: 'vi_VN');
+      if (available) {
+        debugPrint('[Conversation] speech_to_text plugin available');
+        _useCloudSpeech = false;
+        _useNativeSpeech = false;
+        return;
+      }
     }
-    final available = await _speechService.initialize(localeId: 'vi_VN');
-    if (!available && mounted) {
-      debugPrint('[Conversation] Mic not available, showing text input');
-      setState(() => _showTextInput = true);
+
+    // Plugin failed → try NativeSpeechService (free, on-device Android SpeechRecognizer)
+    debugPrint('[Conversation] Plugin unavailable, trying native speech...');
+    if (_nativeSpeechService.isSupportedPlatform) {
+      final nativeOk = await _nativeSpeechService.initialize();
+      if (nativeOk) {
+        debugPrint('[Conversation] Native speech ready! (on-device, free)');
+        _useNativeSpeech = true;
+        _useCloudSpeech = false;
+        return;
+      }
     }
+
+    // Native failed → try Cloud Speech-to-Text (records mic + sends to Google API)
+    debugPrint('[Conversation] Native unavailable, trying cloud speech...');
+    if (_cloudSpeechService.isSupportedPlatform && _cloudSpeechService.isConfigured) {
+      final hasMic = await _cloudSpeechService.hasPermission();
+      if (hasMic) {
+        debugPrint('[Conversation] Cloud speech ready! (mic + Google API)');
+        _useCloudSpeech = true;
+        _useNativeSpeech = false;
+        return;
+      }
+    }
+
+    // All failed → show text input
+    debugPrint('[Conversation] All speech methods failed, showing text input');
+    if (mounted) setState(() => _showTextInput = true);
   }
 
   Future<void> _startLlmConversation() async {
@@ -632,14 +668,80 @@ class _ConversationChatState extends State<_ConversationChat> {
       return;
     }
 
+    // Stop recording
     if (_isUserRecording) {
-      await _speechService.stopListening();
+      if (_useNativeSpeech) {
+        // Native speech auto-delivers results via event stream
+        await _nativeSpeechService.stopListening();
+        setState(() => _isUserRecording = false);
+      } else if (_useCloudSpeech) {
+        // Stop recording and transcribe via cloud
+        setState(() => _isUserRecording = false);
+        final text = await _cloudSpeechService.stopListening(languageCode: 'vi-VN');
+        if (text.isNotEmpty) {
+          debugPrint('[Conversation] Cloud speech result: $text');
+          _submitCloudRecognizedMessage(text);
+        } else if (mounted) {
+          final err = _cloudSpeechService.lastError;
+          if (err != null) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('Nhận dạng lỗi: $err')),
+            );
+          } else {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Không nhận được giọng nói')),
+            );
+          }
+        }
+      } else {
+        await _speechService.stopListening();
+      }
       return;
     }
+
     if (_isAiSpeaking) {
       await _stopAiVoice();
     }
 
+    // Start recording with native speech (on-device, free)
+    if (_useNativeSpeech) {
+      _nativeSpeechService.resetSession();
+      _lastSpeechError = null;
+      final didStart = await _nativeSpeechService.startListening(locale: 'vi-VN');
+      if (didStart) {
+        setState(() => _isUserRecording = true);
+        debugPrint('[Conversation] Native speech recording started');
+      } else if (mounted) {
+        setState(() => _showTextInput = true);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Mic lỗi: ${_nativeSpeechService.errorSummary}'),
+          ),
+        );
+      }
+      return;
+    }
+
+    // Start recording with cloud speech
+    if (_useCloudSpeech) {
+      _cloudSpeechService.resetSession();
+      _lastSpeechError = null;
+      final didStart = await _cloudSpeechService.startListening(locale: 'vi-VN');
+      if (didStart) {
+        setState(() => _isUserRecording = true);
+        debugPrint('[Conversation] Cloud recording started');
+      } else if (mounted) {
+        setState(() => _showTextInput = true);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Mic lỗi: ${_cloudSpeechService.errorSummary}'),
+          ),
+        );
+      }
+      return;
+    }
+
+    // Try plugin speech service
     if (!_speechService.isSupportedPlatform) {
       if (mounted) {
         setState(() => _showTextInput = true);
@@ -693,6 +795,9 @@ class _ConversationChatState extends State<_ConversationChat> {
     _speechService
       ..removeListener(_handleSpeechUpdate)
       ..cancelListening();
+    _nativeSpeechService.removeListener(_handleNativeSpeechUpdate);
+    unawaited(_nativeSpeechService.cancelListening());
+    unawaited(_cloudSpeechService.cancelListening());
     unawaited(_stopAiVoice());
     _ttsPlayer.dispose();
     _localTtsService.stop();
@@ -802,7 +907,7 @@ class _ConversationChatState extends State<_ConversationChat> {
               },
             ),
           ),
-          if (_isUserRecording || _speechService.recognizedText.isNotEmpty)
+          if (_isUserRecording || _activeRecognizedText.isNotEmpty)
             Container(
               width: double.infinity,
               margin: const EdgeInsets.fromLTRB(16, 0, 16, 12),
@@ -815,13 +920,13 @@ class _ConversationChatState extends State<_ConversationChat> {
                 ),
               ),
               child: Text(
-                _speechService.recognizedText.isEmpty
+                _activeRecognizedText.isEmpty
                     ? appLanguage.t('practice.listening')
-                    : _speechService.recognizedText,
+                    : _activeRecognizedText,
                 style: base.copyWith(
                   fontSize: 13,
                   fontWeight: FontWeight.w600,
-                  color: _speechService.recognizedText.isEmpty
+                  color: _activeRecognizedText.isEmpty
                       ? c.textMuted
                       : c.textHeading,
                   height: 1.4,
@@ -1037,6 +1142,13 @@ class _ConversationChatState extends State<_ConversationChat> {
     );
   }
 
+  /// Returns the currently recognized text from whichever speech service is active.
+  String get _activeRecognizedText {
+    if (_useNativeSpeech) return _nativeSpeechService.recognizedText;
+    if (_useCloudSpeech) return _cloudSpeechService.recognizedText;
+    return _speechService.recognizedText;
+  }
+
   void _handleSpeechUpdate() {
     if (!mounted) return;
     final isListening = _speechService.isListening;
@@ -1059,18 +1171,80 @@ class _ConversationChatState extends State<_ConversationChat> {
         !isListening &&
         error != _lastSpeechError) {
       _lastSpeechError = error;
-      // Auto-show text input as fallback when mic fails
       if (!_showTextInput) {
         setState(() => _showTextInput = true);
       }
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            'Mic không khả dụng — hãy dùng bàn phím để nhập tin nhắn.',
+            'Mic lỗi: $error',
           ),
         ),
       );
     }
+  }
+
+  /// Handle updates from native Android speech recognizer.
+  void _handleNativeSpeechUpdate() {
+    if (!mounted) return;
+    final isListening = _nativeSpeechService.isListening;
+    final error = _nativeSpeechService.lastError;
+    final text = _nativeSpeechService.recognizedText;
+
+    // Update recording state
+    if (_isUserRecording != isListening) {
+      setState(() => _isUserRecording = isListening);
+    } else {
+      setState(() {});
+    }
+
+    // If we got a final result and stopped listening, submit it
+    if (!isListening && text.isNotEmpty && !_isUserRecording) {
+      debugPrint('[Conversation] Native speech result: $text');
+      _submitCloudRecognizedMessage(text); // Reuse same submission logic
+      _nativeSpeechService.resetSession();
+      return;
+    }
+
+    // Handle errors
+    if (error != null && error.isNotEmpty && !isListening && error != _lastSpeechError) {
+      _lastSpeechError = error;
+      if (!_showTextInput) {
+        setState(() => _showTextInput = true);
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Mic lỗi: $error')),
+      );
+    }
+  }
+
+  /// Submit text recognized by cloud speech service.
+  void _submitCloudRecognizedMessage(String text) {
+    if (text.isEmpty) return;
+    _cloudSpeechService.resetSession();
+
+    if (_useLlm) {
+      _submitLlmMessage(text);
+      return;
+    }
+
+    // Scripted flow
+    if (_currentUserPrompt == null || _nextTurnIndex >= _scriptFlow.length) {
+      return;
+    }
+    final expected = _scriptFlow[_nextTurnIndex];
+    if (expected.isAi) return;
+
+    setState(() {
+      _messages.add(_ChatMessage(text: text, isUser: true));
+      _nextTurnIndex++;
+      _currentUserPrompt = null;
+    });
+    _scrollToBottom();
+
+    Future.delayed(const Duration(milliseconds: 500), () {
+      if (mounted) _pushNextAiTurn();
+    });
   }
 
   void _submitRecognizedMessage() {
