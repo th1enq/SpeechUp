@@ -14,11 +14,20 @@ import '../services/local_tts_service.dart';
 import '../services/llm_chat_service.dart';
 import '../theme/app_colors.dart';
 import '../widgets/shared_widgets.dart';
-import '../widgets/notifications_bell_button.dart';
+import '../widgets/screen_header.dart';
 import '../services/firestore_service.dart';
 
 class ConversationScreen extends StatefulWidget {
-  const ConversationScreen({super.key});
+  final String? initialCustomPrompt;
+  final VoidCallback? onInitialPromptConsumed;
+  final VoidCallback? onNavigateProfile;
+
+  const ConversationScreen({
+    super.key,
+    this.initialCustomPrompt,
+    this.onInitialPromptConsumed,
+    this.onNavigateProfile,
+  });
 
   @override
   State<ConversationScreen> createState() => _ConversationScreenState();
@@ -82,6 +91,36 @@ class _ConversationScreenState extends State<ConversationScreen> {
   }
 
   @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _consumeInitialPrompt();
+    });
+  }
+
+  @override
+  void didUpdateWidget(covariant ConversationScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.initialCustomPrompt != oldWidget.initialCustomPrompt) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _consumeInitialPrompt();
+      });
+    }
+  }
+
+  void _consumeInitialPrompt() {
+    final prompt = widget.initialCustomPrompt?.trim();
+    if (prompt == null || prompt.isEmpty || !mounted) return;
+    setState(() {
+      _selectedScenario = 'custom';
+      _customPrompt = prompt;
+      _customTopicController.text = prompt;
+      _inConversation = true;
+    });
+    widget.onInitialPromptConsumed?.call();
+  }
+
+  @override
   Widget build(BuildContext context) {
     if (_inConversation && _selectedScenario != null) {
       return _ConversationChat(
@@ -103,7 +142,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
             _customPrompt = null;
           });
         },
-        onSaveConversation: (scenarioId, messages) async {
+        onSaveConversation: (scenarioId, messages, metadata) async {
           if (!isFirebaseSupported) return;
           final user = FirebaseAuth.instance.currentUser;
           if (user != null) {
@@ -112,6 +151,12 @@ class _ConversationScreenState extends State<ConversationScreen> {
               userId: user.uid,
               scenarioId: scenarioId,
               messages: messages,
+              sessionId: metadata.sessionId,
+              scenarioTitle: metadata.scenarioTitle,
+              customPrompt: metadata.customPrompt,
+              provider: metadata.provider,
+              startedAt: metadata.startedAt,
+              endedAt: metadata.endedAt,
             );
           }
         },
@@ -119,6 +164,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
     }
 
     final base = GoogleFonts.plusJakartaSans();
+    final t = appLanguage.t;
     final compact = MediaQuery.sizeOf(context).width < 370;
     final bottomPadding = 16 + MediaQuery.paddingOf(context).bottom;
 
@@ -129,39 +175,10 @@ class _ConversationScreenState extends State<ConversationScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Row(
-                  children: [
-                    const SizedBox(width: 1),
-                  ],
-                ),
-                NotificationsBellButton(
-                  iconColor: AppColors.dashboardNavy,
-                  iconSize: 26,
-                ),
-              ],
-            ),
-            SizedBox(height: compact ? 16 : 22),
-            Text(
-              'Hội thoại với AI',
-              style: base.copyWith(
-                fontSize: compact ? 24 : 28,
-                fontWeight: FontWeight.w800,
-                color: AppColors.dashboardNavy,
-                height: 1.15,
-              ),
-            ),
-            SizedBox(height: compact ? 4 : 6),
-            Text(
-              'Chọn tình huống để bắt đầu luyện tập',
-              style: base.copyWith(
-                fontSize: compact ? 14 : 15,
-                fontWeight: FontWeight.w500,
-                color: AppColors.dashboardTextMuted,
-                height: 1.45,
-              ),
+            ScreenHeader(
+              title: t('chat.title'),
+              subtitle: t('chat.subtitle'),
+              onAvatarTap: widget.onNavigateProfile,
             ),
             const SizedBox(height: 22),
 
@@ -183,7 +200,11 @@ class _ConversationScreenState extends State<ConversationScreen> {
               child: Row(
                 children: [
                   const SizedBox(width: 14),
-                  Icon(Icons.edit_rounded, color: AppColors.onboardingBlue, size: 20),
+                  Icon(
+                    Icons.edit_rounded,
+                    color: AppColors.onboardingBlue,
+                    size: 20,
+                  ),
                   const SizedBox(width: 10),
                   Expanded(
                     child: TextField(
@@ -201,7 +222,9 @@ class _ConversationScreenState extends State<ConversationScreen> {
                           color: AppColors.dashboardTextMuted,
                         ),
                         border: InputBorder.none,
-                        contentPadding: const EdgeInsets.symmetric(vertical: 14),
+                        contentPadding: const EdgeInsets.symmetric(
+                          vertical: 14,
+                        ),
                       ),
                     ),
                   ),
@@ -221,7 +244,11 @@ class _ConversationScreenState extends State<ConversationScreen> {
                       borderRadius: BorderRadius.circular(14),
                       child: const Padding(
                         padding: EdgeInsets.all(12),
-                        child: Icon(Icons.send_rounded, color: Colors.white, size: 20),
+                        child: Icon(
+                          Icons.send_rounded,
+                          color: Colors.white,
+                          size: 20,
+                        ),
                       ),
                     ),
                   ),
@@ -348,6 +375,24 @@ class _Scenario {
   });
 }
 
+class ConversationSessionMetadata {
+  final String sessionId;
+  final String scenarioTitle;
+  final String? customPrompt;
+  final String provider;
+  final DateTime startedAt;
+  final DateTime endedAt;
+
+  const ConversationSessionMetadata({
+    required this.sessionId,
+    required this.scenarioTitle,
+    required this.customPrompt,
+    required this.provider,
+    required this.startedAt,
+    required this.endedAt,
+  });
+}
+
 class _ScenarioCard extends StatelessWidget {
   final _Scenario scenario;
   final VoidCallback onTap;
@@ -444,6 +489,7 @@ class _ConversationChat extends StatefulWidget {
   final Future<void> Function(
     String scenarioId,
     List<Map<String, dynamic>> messages,
+    ConversationSessionMetadata metadata,
   )?
   onSaveConversation;
 
@@ -460,6 +506,8 @@ class _ConversationChat extends StatefulWidget {
 
 class _ConversationChatState extends State<_ConversationChat> {
   final List<_ChatMessage> _messages = [];
+  late final String _sessionId;
+  late final DateTime _sessionStartedAt;
   bool _isTyping = false;
   bool _isUserRecording = false;
   bool _isAiSpeaking = false;
@@ -483,14 +531,18 @@ class _ConversationChatState extends State<_ConversationChat> {
   // Scripted conversation flows (AI + User full turns).
   static const Map<String, List<_ScriptTurn>> _conversationFlows = {
     'cafe': [
-      _ScriptTurn.ai('Xin chào! Chào mừng bạn đến quán cà phê. Bạn muốn dùng gì ạ?'),
+      _ScriptTurn.ai(
+        'Xin chào! Chào mừng bạn đến quán cà phê. Bạn muốn dùng gì ạ?',
+      ),
       _ScriptTurn.user('Cho mình một ly cà phê sữa đá nhé.'),
       _ScriptTurn.ai('Dạ vâng ạ! Bạn muốn size vừa hay lớn ạ?'),
       _ScriptTurn.user('Size vừa thôi, và cho mình thêm ít đường nhé.'),
       _ScriptTurn.ai(
         'Dạ được ạ! Bạn có muốn dùng thêm bánh ngọt không ạ? Hôm nay quán có croissant bơ mới ra lò rất thơm.',
       ),
-      _ScriptTurn.user('Nghe hấp dẫn quá, cho mình một cái croissant luôn nhé!'),
+      _ScriptTurn.user(
+        'Nghe hấp dẫn quá, cho mình một cái croissant luôn nhé!',
+      ),
       _ScriptTurn.ai(
         'Tuyệt vời ạ! Một cà phê sữa đá size vừa ít đường và một croissant bơ. Tổng cộng 75 nghìn ạ. Bạn thanh toán bằng tiền mặt hay chuyển khoản ạ?',
       ),
@@ -503,24 +555,36 @@ class _ConversationChatState extends State<_ConversationChat> {
       _ScriptTurn.user(
         'Dạ vâng, em xin chào. Em tên là Mai, em có 3 năm kinh nghiệm trong lĩnh vực truyền thông.',
       ),
-      _ScriptTurn.ai('Rất tốt! Vậy điểm mạnh lớn nhất của bạn trong công việc là gì?'),
-      _ScriptTurn.user('Điểm mạnh của em là khả năng lên kế hoạch nội dung và quản lý đa nhiệm.'),
-      _ScriptTurn.ai('Bạn có thể chia sẻ về một dự án mà bạn tự hào nhất không?'),
+      _ScriptTurn.ai(
+        'Rất tốt! Vậy điểm mạnh lớn nhất của bạn trong công việc là gì?',
+      ),
+      _ScriptTurn.user(
+        'Điểm mạnh của em là khả năng lên kế hoạch nội dung và quản lý đa nhiệm.',
+      ),
+      _ScriptTurn.ai(
+        'Bạn có thể chia sẻ về một dự án mà bạn tự hào nhất không?',
+      ),
       _ScriptTurn.user(
         'Dự án em tự hào nhất là chiến dịch ra mắt sản phẩm mới, giúp tăng 35% lượng khách hàng tiềm năng chỉ sau 2 tháng.',
       ),
     ],
     'phone': [
-      _ScriptTurn.ai('Alô, xin chào! Đây là công ty ABC, tôi có thể giúp gì cho anh/chị?'),
+      _ScriptTurn.ai(
+        'Alô, xin chào! Đây là công ty ABC, tôi có thể giúp gì cho anh/chị?',
+      ),
       _ScriptTurn.user(
         'Dạ chào anh, em là Mai từ công ty XYZ. Em gọi để trao đổi về đề xuất hợp tác mà bên em đã gửi.',
       ),
-      _ScriptTurn.ai('À vâng, tôi đã nhận được đề xuất. Bạn có thể tóm tắt lại các điểm chính không?'),
+      _ScriptTurn.ai(
+        'À vâng, tôi đã nhận được đề xuất. Bạn có thể tóm tắt lại các điểm chính không?',
+      ),
       _ScriptTurn.user(
         'Dạ vâng. Đề xuất chính là chương trình marketing liên kết, giúp tăng nhận diện thương hiệu cho cả hai bên.',
       ),
       _ScriptTurn.ai('Nghe khá thú vị. Về ngân sách dự kiến thì sao?'),
-      _ScriptTurn.user('Ngân sách dự kiến là 200 triệu trong 3 tháng đầu, sau đó sẽ tối ưu theo hiệu quả thực tế.'),
+      _ScriptTurn.user(
+        'Ngân sách dự kiến là 200 triệu trong 3 tháng đầu, sau đó sẽ tối ưu theo hiệu quả thực tế.',
+      ),
     ],
     'present': [
       _ScriptTurn.ai(
@@ -529,16 +593,85 @@ class _ConversationChatState extends State<_ConversationChat> {
       _ScriptTurn.user(
         'Kính chào ban giám đốc, hôm nay em xin trình bày về chiến lược phát triển quý 3.',
       ),
-      _ScriptTurn.ai('Phần tổng quan rất rõ ràng. Bạn có thể giải thích thêm về mục tiêu doanh thu không?'),
+      _ScriptTurn.ai(
+        'Phần tổng quan rất rõ ràng. Bạn có thể giải thích thêm về mục tiêu doanh thu không?',
+      ),
       _ScriptTurn.user(
         'Dạ mục tiêu doanh thu quý 3 là tăng 20% so với quý 2, tập trung vào nhóm khách hàng doanh nghiệp vừa và nhỏ.',
       ),
     ],
   };
 
+  static const Map<String, List<_ScriptTurn>> _englishConversationFlows = {
+    'cafe': [
+      _ScriptTurn.ai(
+        'Hello! Welcome to the coffee shop. What would you like to order today?',
+      ),
+      _ScriptTurn.user('I would like an iced latte, please.'),
+      _ScriptTurn.ai('Of course. Would you like a regular or large size?'),
+      _ScriptTurn.user('Regular size, and not too sweet, please.'),
+      _ScriptTurn.ai(
+        'No problem. Would you like anything to eat with your drink?',
+      ),
+      _ScriptTurn.user('A butter croissant sounds good. I will take one.'),
+    ],
+    'interview': [
+      _ScriptTurn.ai(
+        'Hello, thanks for coming in today. Could you briefly introduce yourself?',
+      ),
+      _ScriptTurn.user(
+        'Yes, my name is Mai. I have three years of experience in communications.',
+      ),
+      _ScriptTurn.ai('Great. What would you say is your biggest strength?'),
+      _ScriptTurn.user(
+        'My biggest strength is planning content and managing multiple tasks.',
+      ),
+    ],
+    'phone': [
+      _ScriptTurn.ai('Hello, this is ABC Company. How can I help you today?'),
+      _ScriptTurn.user(
+        'Hello, this is Mai from XYZ Company. I am calling about the proposal we sent.',
+      ),
+      _ScriptTurn.ai('Sure. Could you summarize the main points for me?'),
+      _ScriptTurn.user(
+        'The proposal is a partnership campaign to increase brand awareness for both companies.',
+      ),
+    ],
+    'present': [
+      _ScriptTurn.ai(
+        'Hello everyone. You can start your presentation whenever you are ready.',
+      ),
+      _ScriptTurn.user(
+        'Good morning, everyone. Today I will present our strategy for the next quarter.',
+      ),
+      _ScriptTurn.ai(
+        'The overview is clear. Could you explain the revenue target in more detail?',
+      ),
+      _ScriptTurn.user(
+        'Our target is to increase revenue by 20 percent compared with last quarter.',
+      ),
+    ],
+    'shopping': [
+      _ScriptTurn.ai('Hello! Welcome to the store. What are you looking for?'),
+      _ScriptTurn.user('I am looking for a comfortable shirt for work.'),
+      _ScriptTurn.ai('Sure. Do you prefer a formal or casual style?'),
+      _ScriptTurn.user('Something formal, but still easy to wear.'),
+    ],
+    'doctor': [
+      _ScriptTurn.ai('Hello, I am the doctor. What brings you in today?'),
+      _ScriptTurn.user('I have had a sore throat for two days.'),
+      _ScriptTurn.ai('I see. Do you also have a fever or a cough?'),
+      _ScriptTurn.user('I have a mild cough, but no fever.'),
+    ],
+  };
+
   @override
   void initState() {
     super.initState();
+    final userId = FirebaseAuth.instance.currentUser?.uid ?? 'guest';
+    _sessionStartedAt = DateTime.now();
+    _sessionId =
+        '${userId}_${widget.scenario.id}_${_sessionStartedAt.millisecondsSinceEpoch}';
     _speechService = SpeechInputService()..addListener(_handleSpeechUpdate);
     _nativeSpeechService.addListener(_handleNativeSpeechUpdate);
     _ttsPlayer.onPlayerComplete.listen((_) {
@@ -553,7 +686,7 @@ class _ConversationChatState extends State<_ConversationChat> {
     // Pre-check mic availability
     _checkMicAvailability();
 
-    // Decide whether to use LLM or scripted flow
+    // Custom topics require Gemini because there is no fixed script to follow.
     _useLlm = _llmService.isConfigured;
 
     if (_useLlm) {
@@ -562,6 +695,16 @@ class _ConversationChatState extends State<_ConversationChat> {
         customPrompt: widget.customPrompt,
       );
       _startLlmConversation();
+    } else if (widget.customPrompt != null && widget.customPrompt!.isNotEmpty) {
+      _showTextInput = true;
+      _messages.add(
+        _ChatMessage(
+          text: appLanguage.locale.languageCode == 'vi'
+              ? 'Chủ đề riêng cần GEMINI_API_KEY để tạo hội thoại động. Hãy thêm key vào .env rồi chạy lại ứng dụng.'
+              : 'Custom topics require GEMINI_API_KEY to create a dynamic conversation. Add the key to .env and restart the app.',
+          isUser: false,
+        ),
+      );
     } else {
       _pushNextAiTurn();
     }
@@ -570,7 +713,9 @@ class _ConversationChatState extends State<_ConversationChat> {
   Future<void> _checkMicAvailability() async {
     // Try speech_to_text plugin first
     if (_speechService.isSupportedPlatform) {
-      final available = await _speechService.initialize(localeId: 'vi_VN');
+      final available = await _speechService.initialize(
+        localeId: _localeIdForApp(),
+      );
       if (available) {
         debugPrint('[Conversation] speech_to_text plugin available');
         _useCloudSpeech = false;
@@ -593,7 +738,8 @@ class _ConversationChatState extends State<_ConversationChat> {
 
     // Native failed → try Cloud Speech-to-Text (records mic + sends to Google API)
     debugPrint('[Conversation] Native unavailable, trying cloud speech...');
-    if (_cloudSpeechService.isSupportedPlatform && _cloudSpeechService.isConfigured) {
+    if (_cloudSpeechService.isSupportedPlatform &&
+        _cloudSpeechService.isConfigured) {
       final hasMic = await _cloudSpeechService.hasPermission();
       if (hasMic) {
         debugPrint('[Conversation] Cloud speech ready! (mic + Google API)');
@@ -626,8 +772,12 @@ class _ConversationChatState extends State<_ConversationChat> {
     }
   }
 
-  List<_ScriptTurn> get _scriptFlow =>
-      _conversationFlows[widget.scenario.id] ?? _conversationFlows['cafe']!;
+  List<_ScriptTurn> get _scriptFlow {
+    final flows = appLanguage.locale.languageCode == 'vi'
+        ? _conversationFlows
+        : _englishConversationFlows;
+    return flows[widget.scenario.id] ?? flows['cafe']!;
+  }
 
   void _pushNextAiTurn() {
     if (_nextTurnIndex >= _scriptFlow.length) {
@@ -648,7 +798,8 @@ class _ConversationChatState extends State<_ConversationChat> {
         _isTyping = false;
         _messages.add(_ChatMessage(text: aiText, isUser: false));
         _nextTurnIndex++;
-        if (_nextTurnIndex < _scriptFlow.length && !_scriptFlow[_nextTurnIndex].isAi) {
+        if (_nextTurnIndex < _scriptFlow.length &&
+            !_scriptFlow[_nextTurnIndex].isAi) {
           _currentUserPrompt = _scriptFlow[_nextTurnIndex].text;
         } else {
           _currentUserPrompt = null;
@@ -663,7 +814,9 @@ class _ConversationChatState extends State<_ConversationChat> {
     if (_isTyping) return;
     if (!_useLlm && _currentUserPrompt == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Không còn câu mẫu để luyện ở kịch bản này.')),
+        const SnackBar(
+          content: Text('Không còn câu mẫu để luyện ở kịch bản này.'),
+        ),
       );
       return;
     }
@@ -677,16 +830,18 @@ class _ConversationChatState extends State<_ConversationChat> {
       } else if (_useCloudSpeech) {
         // Stop recording and transcribe via cloud
         setState(() => _isUserRecording = false);
-        final text = await _cloudSpeechService.stopListening(languageCode: 'vi-VN');
+        final text = await _cloudSpeechService.stopListening(
+          languageCode: appLanguage.speechLanguageCode,
+        );
         if (text.isNotEmpty) {
           debugPrint('[Conversation] Cloud speech result: $text');
           _submitCloudRecognizedMessage(text);
         } else if (mounted) {
           final err = _cloudSpeechService.lastError;
           if (err != null) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text('Nhận dạng lỗi: $err')),
-            );
+            ScaffoldMessenger.of(
+              context,
+            ).showSnackBar(SnackBar(content: Text('Nhận dạng lỗi: $err')));
           } else {
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(content: Text('Không nhận được giọng nói')),
@@ -707,7 +862,9 @@ class _ConversationChatState extends State<_ConversationChat> {
     if (_useNativeSpeech) {
       _nativeSpeechService.resetSession();
       _lastSpeechError = null;
-      final didStart = await _nativeSpeechService.startListening(locale: 'vi-VN');
+      final didStart = await _nativeSpeechService.startListening(
+        locale: appLanguage.speechLanguageCode,
+      );
       if (didStart) {
         setState(() => _isUserRecording = true);
         debugPrint('[Conversation] Native speech recording started');
@@ -726,7 +883,9 @@ class _ConversationChatState extends State<_ConversationChat> {
     if (_useCloudSpeech) {
       _cloudSpeechService.resetSession();
       _lastSpeechError = null;
-      final didStart = await _cloudSpeechService.startListening(locale: 'vi-VN');
+      final didStart = await _cloudSpeechService.startListening(
+        locale: appLanguage.speechLanguageCode,
+      );
       if (didStart) {
         setState(() => _isUserRecording = true);
         debugPrint('[Conversation] Cloud recording started');
@@ -747,7 +906,9 @@ class _ConversationChatState extends State<_ConversationChat> {
         setState(() => _showTextInput = true);
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Mic không khả dụng — hãy dùng bàn phím để nhập tin nhắn.'),
+            content: Text(
+              'Mic không khả dụng — hãy dùng bàn phím để nhập tin nhắn.',
+            ),
           ),
         );
       }
@@ -765,7 +926,9 @@ class _ConversationChatState extends State<_ConversationChat> {
       setState(() => _showTextInput = true);
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Không thể bật mic — hãy dùng bàn phím để nhập tin nhắn.'),
+          content: Text(
+            'Không thể bật mic — hãy dùng bàn phím để nhập tin nhắn.',
+          ),
         ),
       );
     }
@@ -788,9 +951,26 @@ class _ConversationChatState extends State<_ConversationChat> {
     // Save conversation before disposing
     if (_messages.isNotEmpty && widget.onSaveConversation != null) {
       final messageMaps = _messages
-          .map((m) => {'text': m.text, 'isUser': m.isUser})
+          .map(
+            (m) => {
+              'text': m.text,
+              'isUser': m.isUser,
+              'role': m.isUser ? 'user' : 'assistant',
+            },
+          )
           .toList();
-      widget.onSaveConversation!(widget.scenario.id, messageMaps);
+      widget.onSaveConversation!(
+        widget.scenario.id,
+        messageMaps,
+        ConversationSessionMetadata(
+          sessionId: _sessionId,
+          scenarioTitle: widget.scenario.title,
+          customPrompt: widget.customPrompt,
+          provider: _useLlm ? 'gemini' : 'scripted',
+          startedAt: _sessionStartedAt,
+          endedAt: DateTime.now(),
+        ),
+      );
     }
     _speechService
       ..removeListener(_handleSpeechUpdate)
@@ -866,11 +1046,7 @@ class _ConversationChatState extends State<_ConversationChat> {
         ),
         actions: [
           IconButton(
-            icon: Icon(
-              Icons.tune_rounded,
-              size: 22,
-              color: c.textHeading,
-            ),
+            icon: Icon(Icons.tune_rounded, size: 22, color: c.textHeading),
             onPressed: () {
               showModalBottomSheet(
                 context: context,
@@ -881,11 +1057,7 @@ class _ConversationChatState extends State<_ConversationChat> {
             },
           ),
           IconButton(
-            icon: Icon(
-              Icons.close_rounded,
-              size: 22,
-              color: c.textHeading,
-            ),
+            icon: Icon(Icons.close_rounded, size: 22, color: c.textHeading),
             onPressed: widget.onExit,
           ),
         ],
@@ -915,9 +1087,7 @@ class _ConversationChatState extends State<_ConversationChat> {
               decoration: BoxDecoration(
                 color: c.cardBg,
                 borderRadius: BorderRadius.circular(18),
-                border: Border.all(
-                  color: c.accentBlue.withValues(alpha: 0.18),
-                ),
+                border: Border.all(color: c.accentBlue.withValues(alpha: 0.18)),
               ),
               child: Text(
                 _activeRecognizedText.isEmpty
@@ -941,7 +1111,9 @@ class _ConversationChatState extends State<_ConversationChat> {
               decoration: BoxDecoration(
                 color: c.cardBg,
                 borderRadius: BorderRadius.circular(18),
-                border: Border.all(color: c.accentPurple.withValues(alpha: 0.28)),
+                border: Border.all(
+                  color: c.accentPurple.withValues(alpha: 0.28),
+                ),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -1174,13 +1346,9 @@ class _ConversationChatState extends State<_ConversationChat> {
       if (!_showTextInput) {
         setState(() => _showTextInput = true);
       }
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'Mic lỗi: $error',
-          ),
-        ),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Mic lỗi: $error')));
     }
   }
 
@@ -1207,14 +1375,17 @@ class _ConversationChatState extends State<_ConversationChat> {
     }
 
     // Handle errors
-    if (error != null && error.isNotEmpty && !isListening && error != _lastSpeechError) {
+    if (error != null &&
+        error.isNotEmpty &&
+        !isListening &&
+        error != _lastSpeechError) {
       _lastSpeechError = error;
       if (!_showTextInput) {
         setState(() => _showTextInput = true);
       }
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Mic lỗi: $error')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Mic lỗi: $error')));
     }
   }
 
@@ -1337,20 +1508,21 @@ class _ConversationChatState extends State<_ConversationChat> {
     } catch (e) {
       if (!mounted) return;
       setState(() => _isTyping = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('AI error: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('AI error: $e')));
     }
   }
 
   String _localeIdForApp() {
-    // Speech-to-text is forced to Vietnamese for conversation training.
-    return 'vi_VN';
+    return appLanguage.speechLocaleId;
   }
 
   Future<void> _speakAiMessage(String text) async {
     if (text.trim().isEmpty) return;
-    debugPrint('[Conversation] _speakAiMessage called, text length: ${text.length}');
+    debugPrint(
+      '[Conversation] _speakAiMessage called, text length: ${text.length}',
+    );
 
     // Try Google TTS first (cloud, higher quality)
     if (_ttsService.isConfigured) {
@@ -1360,7 +1532,7 @@ class _ConversationChatState extends State<_ConversationChat> {
         final ttsConfig = await _resolveVietnameseTtsConfig();
         final bytes = await _ttsService.synthesize(
           text: text,
-          languageCode: 'vi-VN',
+          languageCode: appLanguage.speechLanguageCode,
           voiceName: ttsConfig.voiceName,
           speakingRate: ttsConfig.speed,
         );
@@ -1369,7 +1541,9 @@ class _ConversationChatState extends State<_ConversationChat> {
         debugPrint('[Conversation] Google TTS playing successfully');
         return;
       } catch (e) {
-        debugPrint('[Conversation] Google TTS failed: $e, falling back to local TTS');
+        debugPrint(
+          '[Conversation] Google TTS failed: $e, falling back to local TTS',
+        );
       }
     } else {
       debugPrint('[Conversation] Google TTS not configured, using local TTS');
@@ -1380,13 +1554,16 @@ class _ConversationChatState extends State<_ConversationChat> {
       debugPrint('[Conversation] Trying local TTS (flutter_tts)...');
       if (mounted) setState(() => _isAiSpeaking = true);
       final prefs = await SharedPreferences.getInstance();
-      final speed = (prefs.getDouble('profile_ai_voice_speed') ?? 1.0).clamp(0.8, 1.3);
+      final speed = (prefs.getDouble('profile_ai_voice_speed') ?? 1.0).clamp(
+        0.8,
+        1.3,
+      );
       // flutter_tts uses 0.0-1.0 range, map from 0.8-1.3 -> 0.35-0.65
       final ttsSpeed = 0.35 + (speed - 0.8) * 0.6;
       debugPrint('[Conversation] Local TTS speed: $ttsSpeed');
       await _localTtsService.speak(
         text,
-        language: 'vi-VN',
+        language: appLanguage.speechLanguageCode,
         speakingRate: ttsSpeed,
       );
     } catch (e) {
@@ -1402,7 +1579,8 @@ class _ConversationChatState extends State<_ConversationChat> {
     setState(() => _isAiSpeaking = false);
   }
 
-  Future<({String voiceName, double speed})> _resolveVietnameseTtsConfig() async {
+  Future<({String voiceName, double speed})>
+  _resolveVietnameseTtsConfig() async {
     final prefs = await SharedPreferences.getInstance();
     final tone = (prefs.getString('profile_ai_voice_tone') ?? 'Balanced')
         .toLowerCase();
@@ -1412,7 +1590,13 @@ class _ConversationChatState extends State<_ConversationChat> {
     );
 
     String voiceName;
-    if (tone.contains('calm')) {
+    if (appLanguage.locale.languageCode != 'vi') {
+      voiceName = tone.contains('energetic')
+          ? 'en-US-Standard-D'
+          : tone.contains('calm')
+          ? 'en-US-Standard-B'
+          : 'en-US-Standard-C';
+    } else if (tone.contains('calm')) {
       voiceName = 'vi-VN-Standard-B';
     } else if (tone.contains('energetic')) {
       voiceName = 'vi-VN-Standard-D';
@@ -1450,6 +1634,9 @@ class _VoiceSettingsSheetState extends State<_VoiceSettingsSheet> {
   int _selectedVoice = 1;
   double _speed = 1.0;
   bool _isLoading = true;
+  bool _isPreviewing = false;
+  final LocalTtsService _localTtsService = LocalTtsService();
+  void Function()? _previousLocalTtsComplete;
 
   final List<Map<String, dynamic>> _voices = [
     {
@@ -1473,6 +1660,17 @@ class _VoiceSettingsSheetState extends State<_VoiceSettingsSheet> {
   void initState() {
     super.initState();
     _loadSavedSettings();
+    _previousLocalTtsComplete = _localTtsService.onComplete;
+    _localTtsService.onComplete = () {
+      if (mounted) setState(() => _isPreviewing = false);
+    };
+  }
+
+  @override
+  void dispose() {
+    _localTtsService.stop();
+    _localTtsService.onComplete = _previousLocalTtsComplete;
+    super.dispose();
   }
 
   Future<void> _loadSavedSettings() async {
@@ -1597,9 +1795,8 @@ class _VoiceSettingsSheetState extends State<_VoiceSettingsSheet> {
                         ),
                       ),
                     ),
-                    // Play preview
                     GestureDetector(
-                      onTap: () {},
+                      onTap: () => _previewVoice(i),
                       child: Container(
                         width: 32,
                         height: 32,
@@ -1610,7 +1807,9 @@ class _VoiceSettingsSheetState extends State<_VoiceSettingsSheet> {
                           ),
                         ),
                         child: Icon(
-                          Icons.play_arrow_rounded,
+                          _isPreviewing && isSelected
+                              ? Icons.stop_rounded
+                              : Icons.play_arrow_rounded,
                           color: voice['color'] as Color,
                           size: 18,
                         ),
@@ -1661,9 +1860,7 @@ class _VoiceSettingsSheetState extends State<_VoiceSettingsSheet> {
                   max: 1.3,
                   divisions: 5,
                   activeColor: c.accentBlue,
-                  inactiveColor: c.accentBlue.withValues(
-                    alpha: 0.18,
-                  ),
+                  inactiveColor: c.accentBlue.withValues(alpha: 0.18),
                   label: _speed == 1.0
                       ? 'Bình thường'
                       : _speed == 1.1
@@ -1742,10 +1939,33 @@ class _VoiceSettingsSheetState extends State<_VoiceSettingsSheet> {
         ),
         backgroundColor: AppColors.progressAccentBlue,
         behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(14),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
       ),
     );
+  }
+
+  Future<void> _previewVoice(int index) async {
+    setState(() {
+      _selectedVoice = index;
+      _isPreviewing = true;
+    });
+
+    final speed = (0.35 + (_speed - 0.8) * 0.6).clamp(0.0, 1.0);
+    try {
+      await _localTtsService.stop();
+      await _localTtsService.speak(
+        appLanguage.locale.languageCode == 'vi'
+            ? 'Xin chào, đây là bản nghe thử giọng nói AI của SpeechUp.'
+            : 'Hello, this is a SpeechUp AI voice preview.',
+        language: appLanguage.speechLanguageCode,
+        speakingRate: speed,
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _isPreviewing = false);
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Không thể phát nghe thử: $e')));
+    }
   }
 }

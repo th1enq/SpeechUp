@@ -33,15 +33,16 @@ class NotificationService {
 
     const DarwinInitializationSettings initializationSettingsIOS =
         DarwinInitializationSettings(
-      requestAlertPermission: true,
-      requestBadgePermission: true,
-      requestSoundPermission: true,
-    );
+          requestAlertPermission: true,
+          requestBadgePermission: true,
+          requestSoundPermission: true,
+        );
 
-    const InitializationSettings initializationSettings = InitializationSettings(
-      android: initializationSettingsAndroid,
-      iOS: initializationSettingsIOS,
-    );
+    const InitializationSettings initializationSettings =
+        InitializationSettings(
+          android: initializationSettingsAndroid,
+          iOS: initializationSettingsIOS,
+        );
 
     await _flutterLocalNotificationsPlugin.initialize(
       settings: initializationSettings,
@@ -58,7 +59,8 @@ class NotificationService {
 
     final iOSPlugin = _flutterLocalNotificationsPlugin
         .resolvePlatformSpecificImplementation<
-            IOSFlutterLocalNotificationsPlugin>();
+          IOSFlutterLocalNotificationsPlugin
+        >();
     if (iOSPlugin != null) {
       final bool? granted = await iOSPlugin.requestPermissions(
         alert: true,
@@ -70,9 +72,12 @@ class NotificationService {
 
     final androidPlugin = _flutterLocalNotificationsPlugin
         .resolvePlatformSpecificImplementation<
-            AndroidFlutterLocalNotificationsPlugin>();
+          AndroidFlutterLocalNotificationsPlugin
+        >();
     if (androidPlugin != null) {
-      final bool? granted = await androidPlugin.requestNotificationsPermission();
+      final bool? granted = await androidPlugin
+          .requestNotificationsPermission();
+      await androidPlugin.requestExactAlarmsPermission();
       return granted ?? false;
     }
 
@@ -86,11 +91,12 @@ class NotificationService {
 
     if (!enabled) return;
 
-    const AndroidNotificationDetails androidPlatformChannelSpecifics =
-        AndroidNotificationDetails(
+    const AndroidNotificationDetails
+    androidPlatformChannelSpecifics = AndroidNotificationDetails(
       'daily_reminder_channel',
       'Daily Reminders',
-      channelDescription: 'Daily practice reminders to keep your streak',
+      channelDescription:
+          'Daily speaking practice reminders that help maintain your streak and progress.',
       importance: Importance.high,
       priority: Priority.high,
       showWhen: true,
@@ -105,7 +111,8 @@ class NotificationService {
     await _flutterLocalNotificationsPlugin.zonedSchedule(
       id: 0,
       title: 'Time to Practice!',
-      body: 'Keep your streak alive. Spend 5 minutes practicing today.',
+      body:
+          'Your SpeechUp session is ready. Spend at least 5 focused minutes speaking today to keep your streak active and improve your weekly progress.',
       scheduledDate: _nextInstanceOf8PM(),
       notificationDetails: platformChannelSpecifics,
       androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
@@ -137,7 +144,8 @@ class NotificationService {
       android: AndroidNotificationDetails(
         'practice_reminder_channel',
         'Practice Reminders',
-        channelDescription: 'Reminds you before your scheduled practice time',
+        channelDescription:
+            'Reminds you before your scheduled speaking practice time on this device.',
         importance: Importance.high,
         priority: Priority.high,
         showWhen: true,
@@ -147,7 +155,12 @@ class NotificationService {
 
     final tz.TZDateTime now = tz.TZDateTime.now(tz.local);
     tz.TZDateTime scheduledDate = tz.TZDateTime(
-      tz.local, now.year, now.month, now.day, reminderHour, reminderMinute,
+      tz.local,
+      now.year,
+      now.month,
+      now.day,
+      reminderHour,
+      reminderMinute,
     );
     if (scheduledDate.isBefore(now)) {
       scheduledDate = scheduledDate.add(const Duration(days: 1));
@@ -155,8 +168,9 @@ class NotificationService {
 
     await _flutterLocalNotificationsPlugin.zonedSchedule(
       id: 1,
-      title: 'Practice time in 5 minutes! ⏰',
-      body: 'Get ready for your speaking practice session.',
+      title: 'Practice time in 5 minutes!',
+      body:
+          'Your scheduled SpeechUp practice starts soon. Find a quiet place, open Practice or Chat, and complete a short speaking session to keep today on track.',
       scheduledDate: scheduledDate,
       notificationDetails: platformDetails,
       androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
@@ -190,8 +204,13 @@ class NotificationService {
 
   tz.TZDateTime _nextInstanceOf8PM() {
     final tz.TZDateTime now = tz.TZDateTime.now(tz.local);
-    tz.TZDateTime scheduledDate =
-        tz.TZDateTime(tz.local, now.year, now.month, now.day, 20); // 8 PM
+    tz.TZDateTime scheduledDate = tz.TZDateTime(
+      tz.local,
+      now.year,
+      now.month,
+      now.day,
+      20,
+    ); // 8 PM
     if (scheduledDate.isBefore(now)) {
       scheduledDate = scheduledDate.add(const Duration(days: 1));
     }

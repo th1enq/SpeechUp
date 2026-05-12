@@ -12,10 +12,7 @@ import '../theme/theme_notifier.dart';
 class OnboardingScreen extends StatefulWidget {
   final VoidCallback onComplete;
 
-  const OnboardingScreen({
-    super.key,
-    required this.onComplete,
-  });
+  const OnboardingScreen({super.key, required this.onComplete});
 
   @override
   State<OnboardingScreen> createState() => _OnboardingScreenState();
@@ -77,10 +74,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
             Padding(
               padding: const EdgeInsets.fromLTRB(20, 4, 8, 8),
               child: Row(
-                children: [
-                  const Spacer(),
-                  const _OnboardingThemeToggle(),
-                ],
+                children: [const Spacer(), const _OnboardingThemeToggle()],
               ),
             ),
             Expanded(
@@ -90,7 +84,9 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                 children: [
                   SingleChildScrollView(
                     physics: const BouncingScrollPhysics(),
-                    padding: EdgeInsets.symmetric(horizontal: compact ? 18 : 24),
+                    padding: EdgeInsets.symmetric(
+                      horizontal: compact ? 18 : 24,
+                    ),
                     child: Column(
                       children: [
                         const SizedBox(height: 4),
@@ -342,10 +338,7 @@ class _SolidPrimaryCta extends StatelessWidget {
           children: [
             Text(
               label,
-              style: base.copyWith(
-                fontSize: 16,
-                fontWeight: FontWeight.w700,
-              ),
+              style: base.copyWith(fontSize: 16, fontWeight: FontWeight.w700),
             ),
             if (showArrow) ...[
               const SizedBox(width: 8),
@@ -362,10 +355,7 @@ class _OnboardingSecondPage extends StatelessWidget {
   final String title;
   final String subtitle;
 
-  const _OnboardingSecondPage({
-    required this.title,
-    required this.subtitle,
-  });
+  const _OnboardingSecondPage({required this.title, required this.subtitle});
 
   @override
   Widget build(BuildContext context) {
@@ -424,8 +414,36 @@ class _TermsFooterState extends State<_TermsFooter> {
   @override
   void initState() {
     super.initState();
-    _termsTap = TapGestureRecognizer()..onTap = () {};
-    _privacyTap = TapGestureRecognizer()..onTap = () {};
+    _termsTap = TapGestureRecognizer()
+      ..onTap = () => _showPolicyDialog(
+        'Terms of Service',
+        'Use SpeechUp for lawful learning and practice. Practice data is saved to keep progress, streaks, and recommendations consistent across sessions.',
+      );
+    _privacyTap = TapGestureRecognizer()
+      ..onTap = () => _showPolicyDialog(
+        'Privacy Policy',
+        'SpeechUp stores profile settings and practice progress after sign-in. Notification settings and voice preferences are saved on this device.',
+      );
+  }
+
+  Future<void> _showPolicyDialog(String title, String body) {
+    return showDialog<void>(
+      context: context,
+      builder: (context) {
+        final c = context.colors;
+        return AlertDialog(
+          backgroundColor: c.cardBg,
+          title: Text(title),
+          content: Text(body),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: Text(appLanguage.t('common.close')),
+            ),
+          ],
+        );
+      },
+    );
   }
 
   @override

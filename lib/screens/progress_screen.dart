@@ -8,7 +8,7 @@ import '../theme/app_colors.dart';
 import '../services/firestore_service.dart';
 import '../models/user_profile.dart';
 import '../models/practice_session.dart';
-import '../widgets/notifications_bell_button.dart';
+import '../widgets/screen_header.dart';
 
 class ProgressScreen extends StatefulWidget {
   const ProgressScreen({super.key});
@@ -23,8 +23,8 @@ class _ProgressScreenState extends State<ProgressScreen> {
   UserProfile? _profile;
   bool _isLoading = true;
   List<int> _weeklyScores = [];
-  DateTime _weekEnd = DateTime.now();
-  int _selectedDayIndex = 6;
+  late DateTime _weekEnd = _endOfWeek(DateTime.now());
+  late int _selectedDayIndex = DateTime.now().weekday - 1;
   List<PracticeSession> _selectedDaySessions = const [];
 
   @override
@@ -34,15 +34,24 @@ class _ProgressScreenState extends State<ProgressScreen> {
   }
 
   bool get _canGoNextWeek {
-    final today = DateTime.now();
-    final normalizedToday = DateTime(today.year, today.month, today.day);
+    final normalizedToday = _endOfWeek(DateTime.now());
     final normalizedEnd = DateTime(_weekEnd.year, _weekEnd.month, _weekEnd.day);
     return normalizedEnd.isBefore(normalizedToday);
   }
 
+  DateTime _startOfWeek(DateTime date) {
+    final normalized = DateTime(date.year, date.month, date.day);
+    return normalized.subtract(Duration(days: normalized.weekday - 1));
+  }
+
+  DateTime _endOfWeek(DateTime date) =>
+      _startOfWeek(date).add(const Duration(days: 6));
+
   Future<void> _loadWeeklyScores(String uid) async {
-    final weeklyScores =
-        await _firestoreService.getWeeklyScores(uid, endDate: _weekEnd);
+    final weeklyScores = await _firestoreService.getWeeklyScores(
+      uid,
+      endDate: _weekEnd,
+    );
     if (!mounted) return;
     setState(() {
       _weeklyScores = weeklyScores;
@@ -50,8 +59,7 @@ class _ProgressScreenState extends State<ProgressScreen> {
   }
 
   DateTime _dateForSelectedIndex(int index) {
-    final normalizedEnd = DateTime(_weekEnd.year, _weekEnd.month, _weekEnd.day);
-    return normalizedEnd.subtract(Duration(days: 6 - index));
+    return _startOfWeek(_weekEnd).add(Duration(days: index));
   }
 
   Future<void> _loadSelectedDaySessions(String uid) async {
@@ -72,8 +80,10 @@ class _ProgressScreenState extends State<ProgressScreen> {
     if (user != null) {
       try {
         final profile = await _firestoreService.getUserProfile(user.uid);
-        final weeklyScores =
-            await _firestoreService.getWeeklyScores(user.uid, endDate: _weekEnd);
+        final weeklyScores = await _firestoreService.getWeeklyScores(
+          user.uid,
+          endDate: _weekEnd,
+        );
         final selectedDaySessions = await _firestoreService.getSessionsForDate(
           user.uid,
           _dateForSelectedIndex(_selectedDayIndex),
@@ -107,7 +117,7 @@ class _ProgressScreenState extends State<ProgressScreen> {
     if (user == null) return;
     setState(() {
       _weekEnd = _weekEnd.subtract(const Duration(days: 7));
-      _selectedDayIndex = 6;
+      _selectedDayIndex = 0;
     });
     await _loadWeeklyScores(user.uid);
     await _loadSelectedDaySessions(user.uid);
@@ -118,14 +128,18 @@ class _ProgressScreenState extends State<ProgressScreen> {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
 
-    final today = DateTime.now();
-    final normalizedToday = DateTime(today.year, today.month, today.day);
+    final normalizedToday = _endOfWeek(DateTime.now());
     final next = _weekEnd.add(const Duration(days: 7));
-    final normalizedNext = DateTime(next.year, next.month, next.day);
+    final normalizedNext = _endOfWeek(next);
 
     setState(() {
-      _weekEnd = normalizedNext.isAfter(normalizedToday) ? normalizedToday : normalizedNext;
-      _selectedDayIndex = 6;
+      _weekEnd = normalizedNext.isAfter(normalizedToday)
+          ? normalizedToday
+          : normalizedNext;
+      final currentWeekEnd = _endOfWeek(DateTime.now());
+      _selectedDayIndex = _weekEnd == currentWeekEnd
+          ? DateTime.now().weekday - 1
+          : 0;
     });
     await _loadWeeklyScores(user.uid);
     await _loadSelectedDaySessions(user.uid);
@@ -156,8 +170,8 @@ class _ProgressScreenState extends State<ProgressScreen> {
     if (user == null || !isFirebaseSupported) return;
 
     setState(() {
-      _weekEnd = DateTime(picked.year, picked.month, picked.day);
-      _selectedDayIndex = 6;
+      _weekEnd = _endOfWeek(picked);
+      _selectedDayIndex = picked.weekday - 1;
       _isLoading = true;
     });
 
@@ -166,6 +180,43 @@ class _ProgressScreenState extends State<ProgressScreen> {
     if (mounted) {
       setState(() => _isLoading = false);
     }
+  }
+
+  String _milestoneStreakSubtitle() {
+    final days = (_profile?.streakDays ?? 0).clamp(0, 7);
+    if (appLanguage.locale.languageCode == 'vi') {
+      return '$days/7 ngày liên tiếp. Mốc này cho biết bạn có duy trì thói quen luyện nói hằng ngày hay không.';
+    }
+    return '$days/7 consecutive days. This milestone shows whether you are maintaining a daily speaking habit.';
+  }
+
+  String _milestoneFluencySubtitle() {
+    final validScores = _weeklyScores.where((score) => score > 0).toList();
+    final delta = validScores.length >= 2
+        ? validScores.last - validScores.first
+        : 0;
+    if (appLanguage.locale.languageCode == 'vi') {
+      if (validScores.length < 2) {
+        return 'Cần ít nhất 2 ngày có buổi luyện trong tuần để đo mức cải thiện.';
+      }
+      return delta >= 0
+          ? 'Tuần này điểm trung bình tăng $delta điểm so với ngày luyện đầu tuần.'
+          : 'Tuần này điểm trung bình giảm ${delta.abs()} điểm; hãy luyện thêm để ổn định lại.';
+    }
+    if (validScores.length < 2) {
+      return 'Practice on at least 2 days this week to measure improvement.';
+    }
+    return delta >= 0
+        ? 'This week your average score is up $delta points from your first practice day.'
+        : 'This week your average score is down ${delta.abs()} points; keep practicing to stabilize it.';
+  }
+
+  String _milestoneHourSubtitle() {
+    final minutes = (_profile?.totalSpeakingMinutes ?? 0).round().clamp(0, 60);
+    if (appLanguage.locale.languageCode == 'vi') {
+      return '$minutes/60 phút luyện nói đã được ghi nhận từ lịch sử luyện tập.';
+    }
+    return '$minutes/60 speaking minutes recorded from practice history.';
   }
 
   Future<void> _openMilestones() async {
@@ -202,7 +253,7 @@ class _ProgressScreenState extends State<ProgressScreen> {
                   icon: Icons.local_fire_department_rounded,
                   iconColor: cc.accentPurple,
                   title: appLanguage.t('progress.milestoneStreak'),
-                  subtitle: '7 ngày luyện tập liên tục',
+                  subtitle: _milestoneStreakSubtitle(),
                   c: cc,
                 ),
                 const SizedBox(height: 10),
@@ -210,7 +261,7 @@ class _ProgressScreenState extends State<ProgressScreen> {
                   icon: Icons.auto_awesome_rounded,
                   iconColor: cc.accentBlue,
                   title: appLanguage.t('progress.milestoneFluency'),
-                  subtitle: 'Cải thiện độ trôi chảy theo tuần',
+                  subtitle: _milestoneFluencySubtitle(),
                   c: cc,
                 ),
                 const SizedBox(height: 10),
@@ -218,7 +269,7 @@ class _ProgressScreenState extends State<ProgressScreen> {
                   icon: Icons.schedule_rounded,
                   iconColor: cc.accentPurple,
                   title: appLanguage.t('progress.milestoneHour'),
-                  subtitle: 'Tổng 1 giờ luyện nói',
+                  subtitle: _milestoneHourSubtitle(),
                   c: cc,
                 ),
               ],
@@ -235,101 +286,41 @@ class _ProgressScreenState extends State<ProgressScreen> {
     final t = appLanguage.t;
     final c = context.colors;
     final compact = MediaQuery.sizeOf(context).width < 380;
-    
+
     return SafeArea(
       child: RefreshIndicator(
         onRefresh: _loadData,
         color: c.accentBlue,
         backgroundColor: c.cardBg,
         child: SingleChildScrollView(
-          physics: const AlwaysScrollableScrollPhysics(parent: BouncingScrollPhysics()),
+          physics: const AlwaysScrollableScrollPhysics(
+            parent: BouncingScrollPhysics(),
+          ),
           padding: const EdgeInsets.fromLTRB(20, 12, 20, 28),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  // Left: profile avatar (no logo text in this screen).
-                  CircleAvatar(
-                    radius: 22,
-                    backgroundColor: c.cardBg,
-                    backgroundImage: FirebaseAuth.instance.currentUser?.photoURL !=
-                            null
-                        ? NetworkImage(
-                            FirebaseAuth.instance.currentUser!.photoURL!,
-                          )
-                        : null,
-                    child: FirebaseAuth.instance.currentUser?.photoURL ==
-                            null
-                        ? Icon(
-                            Icons.person_rounded,
-                            color: c.textMuted,
-                            size: 22,
-                          )
-                        : null,
-                  ),
-                  NotificationsBellButton(
-                    iconColor: c.textHeading,
-                    iconSize: 26,
-                  ),
-                ],
-              ),
-              const SizedBox(height: 22),
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
-                decoration: BoxDecoration(
-                  color: c.cardBg,
-                  borderRadius: BorderRadius.circular(26),
-                  border: Border.all(color: c.borderColor.withValues(alpha: 0.7)),
-                  boxShadow: [
-                    BoxShadow(
-                      color: c.shadowColor.withValues(alpha: 0.12),
-                      blurRadius: 18,
-                      offset: const Offset(0, 8),
-                    )
-                  ],
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      t('progress.title'),
-                      style: base.copyWith(
-                        fontSize: 22,
-                        fontWeight: FontWeight.w900,
-                        color: c.textHeading,
-                        height: 1.15,
+              ScreenHeader(
+                title: t('progress.title'),
+                subtitle: _isLoading
+                    ? null
+                    : t(
+                        'progress.monthlyMinutes',
+                        params: {
+                          'minutes':
+                              '${_profile?.totalSpeakingMinutes.round() ?? 0}',
+                        },
                       ),
-                    ),
-                    const SizedBox(height: 8),
-                    if (_isLoading)
-                      const SizedBox(
-                        height: 18,
-                        width: 90,
-                        child: LinearProgressIndicator(),
-                      )
-                    else
-                      Text(
-                        t(
-                          'progress.monthlyMinutes',
-                          params: {
-                            'minutes':
-                                '${_profile?.totalSpeakingMinutes.round() ?? 0}',
-                          },
-                        ),
-                        style: base.copyWith(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w600,
-                          color: c.textMuted,
-                          height: 1.35,
-                        ),
-                      ),
-                  ],
-                ),
               ),
-              const SizedBox(height: 18),
+              if (_isLoading) ...[
+                const SizedBox(height: 18),
+                const SizedBox(
+                  height: 18,
+                  width: 90,
+                  child: LinearProgressIndicator(),
+                ),
+              ] else
+                const SizedBox(height: 18),
               if (_showWeekly) ...[
                 _Recent7DaysNav(
                   base: base,
@@ -391,7 +382,12 @@ class _ProgressScreenState extends State<ProgressScreen> {
               const SizedBox(height: 14),
               _PronunciationCard(base: base, c: c),
               const SizedBox(height: 14),
-              _SpeechSpeedTrendCard(base: base, averageSpeed: 142, targetSpeed: 150, c: c), // Replace 142 with real metric if available
+              _SpeechSpeedTrendCard(
+                base: base,
+                averageSpeed: 142,
+                targetSpeed: 150,
+                c: c,
+              ), // Replace 142 with real metric if available
               const SizedBox(height: 26),
               Row(
                 children: [
@@ -586,9 +582,7 @@ class _PeriodToggleChip extends StatelessWidget {
               style: font.copyWith(
                 fontSize: 14,
                 fontWeight: FontWeight.w700,
-                color: selected
-                    ? c.accentBlue
-                    : c.textMuted,
+                color: selected ? c.accentBlue : c.textMuted,
               ),
             ),
           ),
@@ -617,9 +611,13 @@ class _FluencyScoreCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final f = base;
 
-    final displayScores = scores.isEmpty ? [44, 58, 50, 64, 78, 60, 85] : scores;
+    final displayScores = scores.isEmpty
+        ? [44, 58, 50, 64, 78, 60, 85]
+        : scores;
     final safeIndex = selectedIndex.clamp(0, displayScores.length - 1);
-    final currentScore = displayScores.isNotEmpty ? displayScores[safeIndex] : 0;
+    final currentScore = displayScores.isNotEmpty
+        ? displayScores[safeIndex]
+        : 0;
 
     final spots = <FlSpot>[
       for (var i = 0; i < displayScores.length; i++)
@@ -742,9 +740,11 @@ class _FluencyScoreCard extends StatelessWidget {
                           reservedSize: 22,
                           interval: 1,
                           getTitlesWidget: (value, meta) {
-                            const days = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN'];
+                            final days = appLanguage.weekdayNarrowLabels;
                             final i = value.toInt();
-                            if (i < 0 || i >= days.length) return const SizedBox();
+                            if (i < 0 || i >= days.length) {
+                              return const SizedBox();
+                            }
                             return Padding(
                               padding: const EdgeInsets.only(top: 6),
                               child: Text(
@@ -830,9 +830,11 @@ class _FluencyScoreCard extends StatelessWidget {
 
   String _trendLabel(List<int> data) {
     if (data.length < 2) return '--';
-    final first = data.take((data.length / 2).ceil()).fold<int>(0, (a, b) => a + b) /
+    final first =
+        data.take((data.length / 2).ceil()).fold<int>(0, (a, b) => a + b) /
         (data.length / 2).ceil();
-    final second = data.skip((data.length / 2).ceil()).fold<int>(0, (a, b) => a + b) /
+    final second =
+        data.skip((data.length / 2).ceil()).fold<int>(0, (a, b) => a + b) /
         data.skip((data.length / 2).ceil()).length;
     final diff = ((second - first) / (first == 0 ? 1 : first) * 100).round();
     return diff >= 0 ? '+$diff%' : '$diff%';
@@ -859,12 +861,16 @@ class _DailyStudySummaryCard extends StatelessWidget {
     final f = base;
     final isCompact = MediaQuery.sizeOf(context).width < 380;
 
-    final totalSeconds = sessions.fold<int>(0, (acc, s) => acc + s.durationSeconds);
+    final totalSeconds = sessions.fold<int>(
+      0,
+      (acc, s) => acc + s.durationSeconds,
+    );
     final totalMinutes = (totalSeconds / 60).round();
     final sessionCount = sessions.length;
     final avgScore = sessionCount == 0
         ? 0
-        : (sessions.fold<int>(0, (acc, s) => acc + s.score) / sessionCount).round();
+        : (sessions.fold<int>(0, (acc, s) => acc + s.score) / sessionCount)
+              .round();
 
     final dateLabel = MaterialLocalizations.of(context).formatFullDate(date);
 
@@ -972,7 +978,10 @@ class _MiniStat extends StatelessWidget {
       decoration: BoxDecoration(
         color: c.surfaceBg,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: c.borderColor.withValues(alpha: 0.7), width: 1),
+        border: Border.all(
+          color: c.borderColor.withValues(alpha: 0.7),
+          width: 1,
+        ),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1103,20 +1112,23 @@ class _Recent7DaysNav extends StatelessWidget {
     required this.onPickDate,
   });
 
-  static const _weekdayShort = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
-
   @override
   Widget build(BuildContext context) {
     final f = base;
     final isCompact = MediaQuery.sizeOf(context).width < 380;
+    final weekdayShort = appLanguage.weekdayShortLabels;
 
     final normalizedEnd = DateTime(weekEnd.year, weekEnd.month, weekEnd.day);
+    final today = DateTime.now();
+    final normalizedToday = DateTime(today.year, today.month, today.day);
     final days = List<DateTime>.generate(
       7,
       (i) => normalizedEnd.subtract(Duration(days: 6 - i)),
     );
 
-    final monthYear = MaterialLocalizations.of(context).formatMonthYear(normalizedEnd);
+    final monthYear = MaterialLocalizations.of(
+      context,
+    ).formatMonthYear(normalizedEnd);
 
     final bg = c.cardBg;
     final border = c.borderColor;
@@ -1129,11 +1141,7 @@ class _Recent7DaysNav extends StatelessWidget {
         color: bg,
         borderRadius: BorderRadius.circular(26),
         boxShadow: [
-          BoxShadow(
-            color: shadow,
-            blurRadius: 18,
-            offset: const Offset(0, 8),
-          ),
+          BoxShadow(color: shadow, blurRadius: 18, offset: const Offset(0, 8)),
         ],
       ),
       child: Column(
@@ -1195,10 +1203,13 @@ class _Recent7DaysNav extends StatelessWidget {
                       right: i == days.length - 1 ? 0 : (isCompact ? 4 : 8),
                     ),
                     child: _DayNavItem(
-                      weekday: _weekdayShort[(days[i].weekday - 1).clamp(0, 6)],
+                      weekday: weekdayShort[(days[i].weekday - 1).clamp(0, 6)],
                       day: days[i].day,
                       selected: i == selectedIndex,
-                      completed: dailyScores.length == 7 ? dailyScores[i] > 0 : false,
+                      isToday: days[i] == normalizedToday,
+                      completed: dailyScores.length == 7
+                          ? dailyScores[i] > 0
+                          : false,
                       onTap: () => onSelect(i),
                       c: c,
                       borderColor: border,
@@ -1264,6 +1275,7 @@ class _DayNavItem extends StatelessWidget {
   final String weekday;
   final int day;
   final bool selected;
+  final bool isToday;
   final bool completed;
   final VoidCallback onTap;
   final AppColorsExtension c;
@@ -1275,6 +1287,7 @@ class _DayNavItem extends StatelessWidget {
     required this.weekday,
     required this.day,
     required this.selected,
+    required this.isToday,
     required this.completed,
     required this.onTap,
     required this.c,
@@ -1285,8 +1298,16 @@ class _DayNavItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final weekdayColor = selected ? Colors.white.withValues(alpha: 0.92) : c.textMuted;
-    final dayColor = selected ? Colors.white : c.textHeading;
+    final weekdayColor = selected
+        ? Colors.white.withValues(alpha: 0.92)
+        : isToday
+        ? c.accentBlue
+        : c.textMuted;
+    final dayColor = selected
+        ? Colors.white
+        : isToday
+        ? c.accentBlue
+        : c.textHeading;
 
     final indicatorColor = completed
         ? (selected ? Colors.white : c.accentPurple)
@@ -1304,6 +1325,9 @@ class _DayNavItem extends StatelessWidget {
           decoration: BoxDecoration(
             color: selected ? c.accentBlue : Colors.transparent,
             borderRadius: BorderRadius.circular(compact ? 14 : 18),
+            border: isToday && !selected
+                ? Border.all(color: c.accentBlue.withValues(alpha: 0.45))
+                : null,
           ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -1371,10 +1395,7 @@ class _SpeechSpeedTrendCard extends StatelessWidget {
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [
-            c.progressSpeedStart,
-            c.progressSpeedEnd,
-          ],
+          colors: [c.progressSpeedStart, c.progressSpeedEnd],
         ),
         boxShadow: [
           BoxShadow(
@@ -1408,7 +1429,10 @@ class _SpeechSpeedTrendCard extends StatelessWidget {
               ),
               const Spacer(),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 8,
+                ),
                 decoration: BoxDecoration(
                   color: c.cardBg,
                   borderRadius: BorderRadius.circular(999),
@@ -1447,9 +1471,7 @@ class _SpeechSpeedTrendCard extends StatelessWidget {
                       widthFactor: targetProgress,
                       heightFactor: 1,
                       child: DecoratedBox(
-                        decoration: BoxDecoration(
-                          color: c.accentBlue,
-                        ),
+                        decoration: BoxDecoration(color: c.accentBlue),
                       ),
                     ),
                   ),

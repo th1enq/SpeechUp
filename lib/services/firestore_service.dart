@@ -4,6 +4,9 @@ import '../models/user_profile.dart';
 import '../models/practice_session.dart';
 
 class FirestoreService {
+  static const int dailyStreakGoalSeconds = 5 * 60;
+  static const int maxDailyGoalSeconds = 30 * 60;
+
   final FirebaseFirestore _db = FirebaseFirestore.instance;
 
   void _logFirestoreError(String operation, Object error, [StackTrace? st]) {
@@ -41,7 +44,9 @@ class FirestoreService {
 
   /// Update user profile fields
   Future<void> updateUserProfile(
-      String uid, Map<String, dynamic> updates) async {
+    String uid,
+    Map<String, dynamic> updates,
+  ) async {
     await _db.collection('users').doc(uid).update(updates);
   }
 
@@ -75,14 +80,15 @@ class FirestoreService {
   // ─── Practice Sessions ──────────────────────────────────────
 
   /// Save a practice session
-  Future<DocumentReference> savePracticeSession(
-      PracticeSession session) async {
+  Future<DocumentReference> savePracticeSession(PracticeSession session) async {
     return await _db.collection('practice_sessions').add(session.toFirestore());
   }
 
   /// Get recent practice sessions for a user
-  Future<List<PracticeSession>> getRecentSessions(String userId,
-      {int limit = 10}) async {
+  Future<List<PracticeSession>> getRecentSessions(
+    String userId, {
+    int limit = 10,
+  }) async {
     try {
       final query = await _db
           .collection('practice_sessions')
@@ -110,8 +116,10 @@ class FirestoreService {
       final query = await _db
           .collection('practice_sessions')
           .where('userId', isEqualTo: userId)
-          .where('createdAt',
-              isGreaterThanOrEqualTo: Timestamp.fromDate(startOfDay))
+          .where(
+            'createdAt',
+            isGreaterThanOrEqualTo: Timestamp.fromDate(startOfDay),
+          )
           .orderBy('createdAt', descending: true)
           .get();
       return query.docs
@@ -171,13 +179,15 @@ class FirestoreService {
 
   /// Get session count for a specific date range
   Future<int> getSessionCount(
-      String userId, DateTime start, DateTime end) async {
+    String userId,
+    DateTime start,
+    DateTime end,
+  ) async {
     try {
       final query = await _db
           .collection('practice_sessions')
           .where('userId', isEqualTo: userId)
-          .where('createdAt',
-              isGreaterThanOrEqualTo: Timestamp.fromDate(start))
+          .where('createdAt', isGreaterThanOrEqualTo: Timestamp.fromDate(start))
           .where('createdAt', isLessThan: Timestamp.fromDate(end))
           .get();
       return query.size;
@@ -190,6 +200,121 @@ class FirestoreService {
     }
   }
 
+  Future<int> _getTotalPracticeSeconds(
+    String userId,
+    DateTime start,
+    DateTime end,
+  ) async {
+    try {
+      final query = await _db
+          .collection('practice_sessions')
+          .where('userId', isEqualTo: userId)
+          .where('createdAt', isGreaterThanOrEqualTo: Timestamp.fromDate(start))
+          .where('createdAt', isLessThan: Timestamp.fromDate(end))
+          .get();
+
+      return query.docs.fold<int>(
+        0,
+        (total, doc) => total + ((doc.data()['durationSeconds'] ?? 0) as int),
+      );
+    } on FirebaseException catch (e, st) {
+      _logFirestoreError('getTotalPracticeSeconds($userId)', e, st);
+      return 0;
+    } catch (e, st) {
+      _logFirestoreError('getTotalPracticeSeconds($userId)', e, st);
+      return 0;
+    }
+  }
+
+  Future<List<PracticeSession>> _getSessionsInRange(
+    String userId,
+    DateTime start,
+    DateTime end,
+  ) async {
+    try {
+      final query = await _db
+          .collection('practice_sessions')
+          .where('userId', isEqualTo: userId)
+          .where('createdAt', isGreaterThanOrEqualTo: Timestamp.fromDate(start))
+          .where('createdAt', isLessThan: Timestamp.fromDate(end))
+          .orderBy('createdAt', descending: true)
+          .get();
+
+      return query.docs
+          .map((doc) => PracticeSession.fromFirestore(doc))
+          .toList();
+    } on FirebaseException catch (e, st) {
+      _logFirestoreError('getSessionsInRange($userId, $start, $end)', e, st);
+      return const [];
+    } catch (e, st) {
+      _logFirestoreError('getSessionsInRange($userId, $start, $end)', e, st);
+      return const [];
+    }
+  }
+
+  int _roundGoalSeconds(int seconds) {
+    final clamped = seconds.clamp(dailyStreakGoalSeconds, maxDailyGoalSeconds);
+    final roundedMinutes = (clamped / 60).ceil();
+    return roundedMinutes * 60;
+  }
+
+  Future<int> calculateDailyGoalSeconds(
+    String userId, {
+    DateTime? forDate,
+  }) async {
+    final profile = await getUserProfile(userId);
+    final anchor = forDate ?? DateTime.now();
+    final targetDay = DateTime(anchor.year, anchor.month, anchor.day);
+    final lookbackStart = targetDay.subtract(const Duration(days: 7));
+    final recentSessions = await _getSessionsInRange(
+      userId,
+      lookbackStart,
+      targetDay,
+    );
+
+    if (recentSessions.isEmpty) {
+      return dailyStreakGoalSeconds;
+    }
+
+    final activeDays = <DateTime>{};
+    var totalSeconds = 0;
+    for (final session in recentSessions) {
+      totalSeconds += session.durationSeconds;
+      activeDays.add(
+        DateTime(
+          session.createdAt.year,
+          session.createdAt.month,
+          session.createdAt.day,
+        ),
+      );
+    }
+
+    if (activeDays.isEmpty || totalSeconds <= 0) {
+      return dailyStreakGoalSeconds;
+    }
+
+    final averageActiveDaySeconds = totalSeconds / activeDays.length;
+    final habitDrivenGoal = (averageActiveDaySeconds * 0.7).round();
+    final streakBonusSeconds = ((profile?.streakDays ?? 0).clamp(0, 10)) * 30;
+
+    var computedGoal = habitDrivenGoal + streakBonusSeconds;
+    if (activeDays.length >= 5) {
+      computedGoal += 2 * 60;
+    } else if (activeDays.length >= 3) {
+      computedGoal += 60;
+    }
+
+    return _roundGoalSeconds(computedGoal);
+  }
+
+  Future<int> calculateDailyGoalMinutes(
+    String userId, {
+    DateTime? forDate,
+  }) async {
+    final seconds = await calculateDailyGoalSeconds(userId, forDate: forDate);
+    return (seconds / 60).ceil();
+  }
+
   // ─── Conversation History ───────────────────────────────────
 
   /// Save conversation
@@ -197,18 +322,47 @@ class FirestoreService {
     required String userId,
     required String scenarioId,
     required List<Map<String, dynamic>> messages,
+    String? sessionId,
+    String? scenarioTitle,
+    String? customPrompt,
+    String? provider,
+    DateTime? startedAt,
+    DateTime? endedAt,
   }) async {
-    await _db.collection('conversations').add({
+    final data = {
       'userId': userId,
       'scenarioId': scenarioId,
+      'scenarioTitle': scenarioTitle,
+      'customPrompt': customPrompt,
+      'provider': provider,
       'messages': messages,
-      'createdAt': FieldValue.serverTimestamp(),
-    });
+      'messageCount': messages.length,
+      'startedAt': Timestamp.fromDate(startedAt ?? DateTime.now()),
+      'endedAt': Timestamp.fromDate(endedAt ?? DateTime.now()),
+      'updatedAt': FieldValue.serverTimestamp(),
+    };
+
+    final conversations = _db.collection('conversations');
+    if (sessionId == null || sessionId.isEmpty) {
+      await conversations.add({
+        ...data,
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+      return;
+    }
+
+    await conversations.doc(sessionId).set({
+      ...data,
+      'sessionId': sessionId,
+      'createdAt': Timestamp.fromDate(startedAt ?? DateTime.now()),
+    }, SetOptions(merge: true));
   }
 
   /// Get conversation history
-  Future<List<Map<String, dynamic>>> getConversationHistory(String userId,
-      {int limit = 20}) async {
+  Future<List<Map<String, dynamic>>> getConversationHistory(
+    String userId, {
+    int limit = 20,
+  }) async {
     try {
       final query = await _db
           .collection('conversations')
@@ -247,8 +401,10 @@ class FirestoreService {
         final query = await _db
             .collection('practice_sessions')
             .where('userId', isEqualTo: userId)
-            .where('createdAt',
-                isGreaterThanOrEqualTo: Timestamp.fromDate(start))
+            .where(
+              'createdAt',
+              isGreaterThanOrEqualTo: Timestamp.fromDate(start),
+            )
             .where('createdAt', isLessThan: Timestamp.fromDate(end))
             .get();
 
@@ -256,7 +412,9 @@ class FirestoreService {
           scores.add(0);
         } else {
           final total = query.docs.fold<int>(
-              0, (acc, doc) => acc + ((doc.data()['score'] ?? 0) as int));
+            0,
+            (acc, doc) => acc + ((doc.data()['score'] ?? 0) as int),
+          );
           scores.add((total / query.docs.length).round());
         }
       }
@@ -270,32 +428,66 @@ class FirestoreService {
     }
   }
 
-  /// Update the streak count for a user
-  Future<void> updateStreak(String userId) async {
+  /// Update the streak count when today's completed practice reaches the goal.
+  Future<void> updateStreak(String userId, {int? dailyGoalSeconds}) async {
     final profile = await getUserProfile(userId);
     if (profile == null) return;
 
     final now = DateTime.now();
-    final yesterday = now.subtract(const Duration(days: 1));
-    final startOfYesterday =
-        DateTime(yesterday.year, yesterday.month, yesterday.day);
-    final endOfYesterday = startOfYesterday.add(const Duration(days: 1));
+    final today = DateTime(now.year, now.month, now.day);
+    final tomorrow = today.add(const Duration(days: 1));
+    final yesterday = today.subtract(const Duration(days: 1));
+    final requiredGoalSeconds =
+        dailyGoalSeconds ??
+        await calculateDailyGoalSeconds(userId, forDate: today);
 
-    // Check if user practiced yesterday
-    final yesterdayCount =
-        await getSessionCount(userId, startOfYesterday, endOfYesterday);
+    final todaySeconds = await _getTotalPracticeSeconds(
+      userId,
+      today,
+      tomorrow,
+    );
+    final updates = <String, dynamic>{
+      'lastPracticeAt': Timestamp.fromDate(now),
+    };
 
-    int newStreak;
-    if (yesterdayCount > 0) {
-      newStreak = profile.streakDays + 1;
-    } else {
-      // Check if user already practiced today (don't reset)
-      final startOfToday = DateTime(now.year, now.month, now.day);
-      final todayCount =
-          await getSessionCount(userId, startOfToday, now);
-      newStreak = todayCount > 0 ? 1 : 0;
+    if (todaySeconds < requiredGoalSeconds) {
+      await updateUserProfile(userId, updates);
+      return;
     }
 
-    await updateUserProfile(userId, {'streakDays': newStreak});
+    final lastQualified = profile.lastQualifiedPracticeDate == null
+        ? null
+        : DateTime(
+            profile.lastQualifiedPracticeDate!.year,
+            profile.lastQualifiedPracticeDate!.month,
+            profile.lastQualifiedPracticeDate!.day,
+          );
+
+    if (lastQualified == today) {
+      await updateUserProfile(userId, updates);
+      return;
+    }
+
+    final yesterdaySeconds = await _getTotalPracticeSeconds(
+      userId,
+      yesterday,
+      today,
+    );
+    final yesterdayGoalSeconds = await calculateDailyGoalSeconds(
+      userId,
+      forDate: yesterday,
+    );
+    final continuesExistingStreak =
+        lastQualified == yesterday ||
+        (lastQualified == null &&
+            profile.streakDays > 0 &&
+            yesterdaySeconds >= yesterdayGoalSeconds);
+
+    updates['streakDays'] = continuesExistingStreak
+        ? profile.streakDays + 1
+        : 1;
+    updates['lastQualifiedPracticeDate'] = Timestamp.fromDate(today);
+
+    await updateUserProfile(userId, updates);
   }
 }

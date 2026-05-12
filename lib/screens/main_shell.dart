@@ -23,6 +23,7 @@ class _MainShellState extends State<MainShell> {
   int _currentIndex = 0;
   final FirestoreService _firestoreService = FirestoreService();
   bool _didCheckFirstLoginSetup = false;
+  String? _pendingChatTopic;
 
   @override
   void initState() {
@@ -33,7 +34,8 @@ class _MainShellState extends State<MainShell> {
   }
 
   String _firstLoginSetupKey(String uid) => 'first_login_setup_completed_$uid';
-  String _firstLoginSetupPendingKey(String uid) => 'first_login_setup_pending_$uid';
+  String _firstLoginSetupPendingKey(String uid) =>
+      'first_login_setup_pending_$uid';
 
   Future<void> _maybeShowFirstLoginSetup() async {
     if (_didCheckFirstLoginSetup || !mounted || !isFirebaseSupported) return;
@@ -43,18 +45,25 @@ class _MainShellState extends State<MainShell> {
     if (user == null) return;
 
     final prefs = await SharedPreferences.getInstance();
-    final pending = prefs.getBool(_firstLoginSetupPendingKey(user.uid)) ?? false;
+    final pending =
+        prefs.getBool(_firstLoginSetupPendingKey(user.uid)) ?? false;
     final completed = prefs.getBool(_firstLoginSetupKey(user.uid)) ?? false;
     if (!pending || completed) return;
 
     final t = appLanguage.t;
     final profile = await _firestoreService.getUserProfile(user.uid);
     final displayNameController = TextEditingController(
-      text: (profile?.displayName ?? user.displayName ?? user.email?.split('@').first ?? '')
-          .trim(),
+      text:
+          (profile?.displayName ??
+                  user.displayName ??
+                  user.email?.split('@').first ??
+                  '')
+              .trim(),
     );
     var language = profile?.language ?? 'English (US)';
-    final selectedGoals = Set<String>.from(profile?.practiceGoals ?? const <String>[]);
+    final selectedGoals = Set<String>.from(
+      profile?.practiceGoals ?? const <String>[],
+    );
     String? error;
     var saving = false;
 
@@ -195,17 +204,21 @@ class _MainShellState extends State<MainShell> {
                               try {
                                 await user.updateDisplayName(name);
                                 final goals = selectedGoals.toList()..sort();
-                                await _firestoreService.updateUserProfile(
-                                  user.uid,
-                                  {
-                                    'displayName': name,
-                                    'language': language,
-                                    'practiceGoals': goals,
-                                  },
-                                );
+                                await _firestoreService
+                                    .updateUserProfile(user.uid, {
+                                      'displayName': name,
+                                      'language': language,
+                                      'practiceGoals': goals,
+                                    });
                                 appLanguage.setByDisplayName(language);
-                                await prefs.setBool(_firstLoginSetupKey(user.uid), true);
-                                await prefs.setBool(_firstLoginSetupPendingKey(user.uid), false);
+                                await prefs.setBool(
+                                  _firstLoginSetupKey(user.uid),
+                                  true,
+                                );
+                                await prefs.setBool(
+                                  _firstLoginSetupPendingKey(user.uid),
+                                  false,
+                                );
                                 if (sheetContext.mounted) {
                                   Navigator.of(sheetContext).pop();
                                 }
@@ -234,6 +247,13 @@ class _MainShellState extends State<MainShell> {
     setState(() => _currentIndex = index);
   }
 
+  void _openChatTopic(String topic) {
+    setState(() {
+      _pendingChatTopic = topic;
+      _currentIndex = 2;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final t = appLanguage.t;
@@ -246,12 +266,20 @@ class _MainShellState extends State<MainShell> {
         children: [
           HomeScreen(
             onNavigate: _navigateTo,
+            onOpenChatTopic: _openChatTopic,
             userName: isFirebaseSupported
                 ? (FirebaseAuth.instance.currentUser?.displayName ?? 'User')
                 : 'User',
           ),
           const PracticeScreen(),
-          const ConversationScreen(),
+          ConversationScreen(
+            initialCustomPrompt: _pendingChatTopic,
+            onNavigateProfile: () => _navigateTo(4),
+            onInitialPromptConsumed: () {
+              if (!mounted) return;
+              setState(() => _pendingChatTopic = null);
+            },
+          ),
           const ProgressScreen(),
           const ProfileScreen(),
         ],
@@ -266,14 +294,10 @@ class _MainShellState extends State<MainShell> {
               offset: const Offset(0, -4),
             ),
           ],
-          borderRadius: const BorderRadius.vertical(
-            top: Radius.circular(24),
-          ),
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
         ),
         child: ClipRRect(
-          borderRadius: const BorderRadius.vertical(
-            top: Radius.circular(24),
-          ),
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
           child: NavigationBarTheme(
             data: NavigationBarThemeData(
               indicatorColor: c.navPill,

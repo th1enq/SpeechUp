@@ -6,14 +6,17 @@ import '../theme/app_colors.dart';
 import '../services/firestore_service.dart';
 import '../services/notification_service.dart';
 import '../main.dart' show isFirebaseSupported;
+import '../widgets/screen_header.dart';
 
 class HomeScreen extends StatefulWidget {
   final Function(int) onNavigate;
+  final ValueChanged<String>? onOpenChatTopic;
   final String userName;
 
   const HomeScreen({
     super.key,
     required this.onNavigate,
+    this.onOpenChatTopic,
     this.userName = 'User',
   });
 
@@ -28,22 +31,9 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _isLoading = true;
   int _todayMinutes = 0;
   int _streakDays = 0;
+  int _dailyGoalMinutes = (FirestoreService.dailyStreakGoalSeconds / 60).ceil();
   TimeOfDay? _practiceTime;
   List<bool> _weeklyActivity = List.filled(7, false);
-  final List<_HomeNotification> _notifications = [
-    _HomeNotification(
-      title: 'Daily practice reminder',
-      body: 'Spend a few minutes speaking today to keep your streak.',
-      createdAt: DateTime.now(),
-    ),
-    _HomeNotification(
-      title: 'Try a guided exercise',
-      body: 'Start a guided speaking session to warm up your voice.',
-      createdAt: DateTime.now(),
-    ),
-  ];
-
-  static const int _dailyGoalMinutes = 30;
 
   @override
   void initState() {
@@ -70,6 +60,8 @@ class _HomeScreenState extends State<HomeScreen> {
         (acc, s) => acc + s.durationSeconds,
       );
       final minutes = (totalSeconds / 60).round();
+      final dailyGoalMinutes = await _firestoreService
+          .calculateDailyGoalMinutes(user.uid);
 
       // Load streak from user profile
       int streak = 0;
@@ -84,23 +76,34 @@ class _HomeScreenState extends State<HomeScreen> {
         savedTime = await NotificationService().getSavedPracticeTime();
       } catch (_) {}
 
-      // Build 7-day activity (today + 6 days back)
+      // Build activity for the current Monday-Sunday week.
       List<bool> activity = List.filled(7, false);
       try {
-        final recentSessions = await _firestoreService.getRecentSessions(user.uid, limit: 50);
+        final recentSessions = await _firestoreService.getRecentSessions(
+          user.uid,
+          limit: 50,
+        );
         final now = DateTime.now();
+        final weekStart = DateTime(
+          now.year,
+          now.month,
+          now.day,
+        ).subtract(Duration(days: now.weekday - 1));
         for (int i = 0; i < 7; i++) {
-          final day = now.subtract(Duration(days: 6 - i));
-          activity[i] = recentSessions.any((s) =>
-            s.createdAt.year == day.year &&
-            s.createdAt.month == day.month &&
-            s.createdAt.day == day.day);
+          final day = weekStart.add(Duration(days: i));
+          activity[i] = recentSessions.any(
+            (s) =>
+                s.createdAt.year == day.year &&
+                s.createdAt.month == day.month &&
+                s.createdAt.day == day.day,
+          );
         }
       } catch (_) {}
 
       if (!mounted) return;
       setState(() {
         _todayMinutes = minutes;
+        _dailyGoalMinutes = dailyGoalMinutes;
         _streakDays = streak;
         _practiceTime = savedTime;
         _weeklyActivity = activity;
@@ -126,154 +129,6 @@ class _HomeScreenState extends State<HomeScreen> {
     if (picked == null || !mounted) return;
     setState(() => _practiceTime = picked);
     await NotificationService().scheduleAtUserTime(picked);
-  }
-
-  int get _unreadNotificationCount =>
-      _notifications.where((n) => !n.read).length;
-
-  Future<void> _handleNotificationsTap() async {
-    final messenger = ScaffoldMessenger.of(context);
-    final granted = await NotificationService().requestPermissions();
-    if (!mounted) return;
-    if (!granted) {
-      messenger.showSnackBar(
-        const SnackBar(
-          content: Text('Please allow notifications to receive daily reminders.'),
-        ),
-      );
-      // Still allow users to view in-app notifications list.
-    }
-    if (granted) {
-      await NotificationService().scheduleDailyReminder(true);
-    }
-    if (!mounted) return;
-
-    // Open in-app notifications list and mark all as read.
-    await showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      showDragHandle: true,
-      backgroundColor: context.colors.surfaceBg,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      builder: (context) {
-        final c = context.colors;
-        final sheetHeight = MediaQuery.of(context).size.height * 0.45;
-        return SafeArea(
-          top: false,
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 20),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(
-                      'Notifications',
-                      style: _base.copyWith(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w900,
-                        color: c.textHeading,
-                      ),
-                    ),
-                    if (_unreadNotificationCount > 0)
-                      Text(
-                        '$_unreadNotificationCount new',
-                        style: _base.copyWith(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w700,
-                          color: c.accentBlue,
-                        ),
-                      ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                if (_notifications.isEmpty)
-                  Text(
-                    'No notifications yet.',
-                    style: _base.copyWith(
-                      fontSize: 14,
-                      color: c.textMuted,
-                    ),
-                  )
-                else
-                  SizedBox(
-                    height: sheetHeight,
-                    child: ListView.separated(
-                      itemCount: _notifications.length,
-                      separatorBuilder: (_, __) => const SizedBox(height: 8),
-                      itemBuilder: (context, index) {
-                        final n = _notifications[index];
-                        return Container(
-                          padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(
-                            color: n.read
-                                ? c.cardBg
-                                : c.accentBlue.withValues(alpha: 0.06),
-                            borderRadius: BorderRadius.circular(14),
-                            border: Border.all(
-                              color: c.borderColor.withValues(alpha: 0.7),
-                            ),
-                          ),
-                          child: Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Icon(
-                                n.read
-                                    ? Icons.notifications_none_rounded
-                                    : Icons.notifications_active_rounded,
-                                size: 22,
-                                color: n.read
-                                    ? c.textMuted
-                                    : c.accentBlue,
-                              ),
-                              const SizedBox(width: 10),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment:
-                                      CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      n.title,
-                                      style: _base.copyWith(
-                                        fontSize: 14,
-                                        fontWeight: FontWeight.w800,
-                                        color: c.textHeading,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 4),
-                                    Text(
-                                      n.body,
-                                      style: _base.copyWith(
-                                        fontSize: 13,
-                                        color: c.textMuted,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ],
-                          ),
-                        );
-                      },
-                    ),
-                  ),
-              ],
-            ),
-          ),
-        );
-      },
-    );
-
-    if (!mounted) return;
-    setState(() {
-      for (final n in _notifications) {
-        n.read = true;
-      }
-    });
   }
 
   List<String> _allTopics() {
@@ -325,7 +180,10 @@ class _HomeScreenState extends State<HomeScreen> {
                 for (final topic in topics)
                   ListTile(
                     contentPadding: const EdgeInsets.symmetric(horizontal: 6),
-                    leading: Icon(Icons.record_voice_over_rounded, color: c.accentBlue),
+                    leading: Icon(
+                      Icons.record_voice_over_rounded,
+                      color: c.accentBlue,
+                    ),
                     title: Text(
                       topic,
                       style: _base.copyWith(
@@ -348,10 +206,7 @@ class _HomeScreenState extends State<HomeScreen> {
       },
     );
     if (!mounted || selected == null) return;
-    widget.onNavigate(2);
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Topic selected: $selected')),
-    );
+    widget.onOpenChatTopic?.call(selected);
   }
 
   @override
@@ -377,22 +232,13 @@ class _HomeScreenState extends State<HomeScreen> {
               physics: const AlwaysScrollableScrollPhysics(
                 parent: BouncingScrollPhysics(),
               ),
-              padding: EdgeInsets.fromLTRB(
-                20,
-                12,
-                20,
-                bottomContentPadding,
-              ),
+              padding: EdgeInsets.fromLTRB(20, 12, 20, bottomContentPadding),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _HomeTopBar(
-                    base: _base,
-                    c: c,
+                  ScreenHeader(
                     title: t('home.appName'),
-                    onProfileTap: _goProfile,
-                    onNotificationsTap: _handleNotificationsTap,
-                    unreadCount: _unreadNotificationCount,
+                    onAvatarTap: _goProfile,
                   ),
                   const SizedBox(height: 18),
                   _DailyGoalCard(
@@ -555,10 +401,7 @@ class _HomeScreenState extends State<HomeScreen> {
             bottom: 12 + MediaQuery.paddingOf(context).bottom,
             child: SafeArea(
               top: false,
-              child: _MicFab(
-                c: c,
-                onTap: _goPractice,
-              ),
+              child: _MicFab(c: c, onTap: _goPractice),
             ),
           ),
         ],
@@ -587,9 +430,10 @@ class _StreakSchedulerCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final dayLetters = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
     final hasTime = practiceTime != null;
     final timeStr = hasTime ? practiceTime!.format(context) : '--:--';
+    final weekdayLabels = appLanguage.weekdayNarrowLabels;
+    final todayIndex = DateTime.now().weekday - 1;
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -598,7 +442,11 @@ class _StreakSchedulerCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(20),
         border: Border.all(color: c.borderColor.withValues(alpha: 0.5)),
         boxShadow: [
-          BoxShadow(color: c.shadowColor, blurRadius: 12, offset: const Offset(0, 4)),
+          BoxShadow(
+            color: c.shadowColor,
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
         ],
       ),
       child: Column(
@@ -653,7 +501,10 @@ class _StreakSchedulerCard extends StatelessWidget {
               GestureDetector(
                 onTap: onScheduleTap,
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 8,
+                  ),
                   decoration: BoxDecoration(
                     color: hasTime
                         ? c.accentBlue.withValues(alpha: 0.10)
@@ -702,33 +553,73 @@ class _StreakSchedulerCard extends StatelessWidget {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: List.generate(7, (i) {
               final active = i < weeklyActivity.length && weeklyActivity[i];
-              final isToday = i == 6;
+              final isToday = i == todayIndex;
+              final circleSize = isToday ? 34.0 : 26.0;
+              final borderColor = isToday
+                  ? AppColors.streakFlame
+                  : active
+                  ? AppColors.streakFlame.withValues(alpha: 0.55)
+                  : c.borderColor.withValues(alpha: 0.35);
+              final fillColor = active
+                  ? AppColors.streakFlame
+                  : isToday
+                  ? AppColors.streakFlame.withValues(alpha: 0.14)
+                  : c.borderColor.withValues(alpha: 0.16);
+
               return Expanded(
                 child: Column(
                   children: [
-                    Container(
-                      width: 28,
-                      height: 28,
+                    AnimatedContainer(
+                      duration: const Duration(milliseconds: 180),
+                      curve: Curves.easeOutCubic,
+                      width: circleSize,
+                      height: circleSize,
                       decoration: BoxDecoration(
                         shape: BoxShape.circle,
-                        color: active
-                            ? AppColors.streakFlame
-                            : c.borderColor.withValues(alpha: 0.3),
-                        border: isToday
-                            ? Border.all(color: AppColors.streakFlame, width: 2)
+                        color: fillColor,
+                        border: Border.all(
+                          color: borderColor,
+                          width: isToday ? 3 : 1,
+                        ),
+                        boxShadow: isToday
+                            ? [
+                                BoxShadow(
+                                  color: AppColors.streakFlame.withValues(
+                                    alpha: active ? 0.28 : 0.18,
+                                  ),
+                                  blurRadius: 10,
+                                  offset: const Offset(0, 3),
+                                ),
+                              ]
                             : null,
                       ),
                       child: active
-                          ? const Icon(Icons.check, color: Colors.white, size: 14)
+                          ? const Icon(
+                              Icons.check,
+                              color: Colors.white,
+                              size: 14,
+                            )
+                          : isToday
+                          ? Icon(
+                              Icons.local_fire_department_rounded,
+                              color: AppColors.streakFlame,
+                              size: 17,
+                            )
                           : null,
                     ),
-                    const SizedBox(height: 4),
+                    SizedBox(height: isToday ? 5 : 6),
                     Text(
-                      dayLetters[i],
+                      weekdayLabels[i],
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                       style: base.copyWith(
-                        fontSize: 10,
-                        fontWeight: FontWeight.w700,
-                        color: active ? AppColors.streakFlame : c.textMuted,
+                        fontSize: isToday ? 10 : 9,
+                        fontWeight: isToday ? FontWeight.w900 : FontWeight.w700,
+                        color: isToday
+                            ? AppColors.streakFlame
+                            : active
+                            ? AppColors.streakFlame.withValues(alpha: 0.78)
+                            : c.textMuted.withValues(alpha: 0.55),
                       ),
                     ),
                   ],
@@ -738,117 +629,6 @@ class _StreakSchedulerCard extends StatelessWidget {
           ),
         ],
       ),
-    );
-  }
-}
-
-class _HomeTopBar extends StatelessWidget {
-  final TextStyle base;
-  final AppColorsExtension c;
-  final String title;
-  final VoidCallback onProfileTap;
-  final VoidCallback onNotificationsTap;
-  final int unreadCount;
-
-  const _HomeTopBar({
-    required this.base,
-    required this.c,
-    required this.title,
-    required this.onProfileTap,
-    required this.onNotificationsTap,
-    required this.unreadCount,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final user = FirebaseAuth.instance.currentUser;
-    final photo = user?.photoURL;
-
-    return Row(
-      children: [
-        Material(
-          color: Colors.transparent,
-          child: InkWell(
-            onTap: onProfileTap,
-            borderRadius: BorderRadius.circular(999),
-            child: Container(
-              width: 42,
-              height: 42,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: c.cardBg,
-                border: Border.all(color: c.borderColor.withValues(alpha: 0.7)),
-              ),
-              child: ClipOval(
-                child: photo == null
-                    ? Icon(Icons.person_rounded, color: c.textMuted)
-                    : Image.network(
-                        photo,
-                        fit: BoxFit.cover,
-                        errorBuilder: (context, error, stackTrace) =>
-                            Icon(Icons.person_rounded, color: c.textMuted),
-                      ),
-              ),
-            ),
-          ),
-        ),
-        const SizedBox(width: 10),
-        Expanded(
-          child: Center(
-            child: Text(
-              title,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: base.copyWith(
-                fontSize: 22,
-                fontWeight: FontWeight.w900,
-                color: c.textHeading,
-                height: 1.0,
-              ),
-            ),
-          ),
-        ),
-        Stack(
-          clipBehavior: Clip.none,
-          children: [
-            IconButton(
-              onPressed: onNotificationsTap,
-              padding: EdgeInsets.zero,
-              constraints:
-                  const BoxConstraints(minWidth: 42, minHeight: 42),
-              icon: Icon(
-                Icons.notifications_none_rounded,
-                color: c.textHeading,
-                size: 26,
-              ),
-            ),
-            if (unreadCount > 0)
-              Positioned(
-                right: 6,
-                top: 6,
-                child: Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
-                  decoration: BoxDecoration(
-                    color: Colors.redAccent,
-                    borderRadius: BorderRadius.circular(999),
-                  ),
-                  constraints:
-                      const BoxConstraints(minWidth: 18, minHeight: 16),
-                  child: Text(
-                    unreadCount > 9 ? '9+' : '$unreadCount',
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 10,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                ),
-              ),
-          ],
-        ),
-      ],
     );
   }
 }
@@ -924,8 +704,10 @@ class _DailyGoalCard extends StatelessWidget {
                 ),
                 const SizedBox(height: 10),
                 Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 7,
+                  ),
                   decoration: BoxDecoration(
                     color: badgeBg,
                     borderRadius: BorderRadius.circular(999),
@@ -933,11 +715,7 @@ class _DailyGoalCard extends StatelessWidget {
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(
-                        Icons.bolt_rounded,
-                        size: 16,
-                        color: c.feedbackGood,
-                      ),
+                      Icon(Icons.bolt_rounded, size: 16, color: c.feedbackGood),
                       const SizedBox(width: 6),
                       Text(
                         badge,
@@ -1040,17 +818,25 @@ class _FeatureGrid extends StatelessWidget {
       children: [
         Row(
           children: [
-            Expanded(child: _FeatureTile(base: base, c: c, item: items[0])),
+            Expanded(
+              child: _FeatureTile(base: base, c: c, item: items[0]),
+            ),
             const SizedBox(width: 14),
-            Expanded(child: _FeatureTile(base: base, c: c, item: items[1])),
+            Expanded(
+              child: _FeatureTile(base: base, c: c, item: items[1]),
+            ),
           ],
         ),
         const SizedBox(height: 14),
         Row(
           children: [
-            Expanded(child: _FeatureTile(base: base, c: c, item: items[2])),
+            Expanded(
+              child: _FeatureTile(base: base, c: c, item: items[2]),
+            ),
             const SizedBox(width: 14),
-            Expanded(child: _FeatureTile(base: base, c: c, item: items[3])),
+            Expanded(
+              child: _FeatureTile(base: base, c: c, item: items[3]),
+            ),
           ],
         ),
       ],
@@ -1063,11 +849,7 @@ class _FeatureTile extends StatelessWidget {
   final AppColorsExtension c;
   final _FeatureItem item;
 
-  const _FeatureTile({
-    required this.base,
-    required this.c,
-    required this.item,
-  });
+  const _FeatureTile({required this.base, required this.c, required this.item});
 
   @override
   Widget build(BuildContext context) {
@@ -1078,26 +860,31 @@ class _FeatureTile extends StatelessWidget {
         onTap: item.onTap,
         borderRadius: BorderRadius.circular(22),
         child: Ink(
-          height: compact ? 110 : 118,
-          padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
+          height: compact ? 124 : 128,
+          padding: EdgeInsets.fromLTRB(12, compact ? 10 : 12, 12, 10),
           decoration: BoxDecoration(
             color: c.cardBg,
             borderRadius: BorderRadius.circular(22),
             border: Border.all(color: c.borderColor.withValues(alpha: 0.75)),
           ),
           child: Column(
+            mainAxisSize: MainAxisSize.min,
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               Container(
-                width: 50,
-                height: 50,
+                width: compact ? 42 : 46,
+                height: compact ? 42 : 46,
                 decoration: BoxDecoration(
                   color: item.iconBg,
-                  borderRadius: BorderRadius.circular(18),
+                  borderRadius: BorderRadius.circular(16),
                 ),
-                child: Icon(item.icon, color: item.iconColor, size: 26),
+                child: Icon(
+                  item.icon,
+                  color: item.iconColor,
+                  size: compact ? 22 : 24,
+                ),
               ),
-              const SizedBox(height: 12),
+              SizedBox(height: compact ? 8 : 10),
               Text(
                 item.label,
                 textAlign: TextAlign.center,
@@ -1105,9 +892,9 @@ class _FeatureTile extends StatelessWidget {
                 overflow: TextOverflow.ellipsis,
                 style: base.copyWith(
                   color: c.textHeading,
-                  fontSize: 14,
+                  fontSize: compact ? 12.5 : 13.5,
                   fontWeight: FontWeight.w800,
-                  height: 1.15,
+                  height: 1.08,
                 ),
               ),
             ],
@@ -1157,7 +944,10 @@ class _LearningPath extends StatelessWidget {
               Container(
                 width: 12,
                 height: 12,
-                decoration: BoxDecoration(color: accent, shape: BoxShape.circle),
+                decoration: BoxDecoration(
+                  color: accent,
+                  shape: BoxShape.circle,
+                ),
               ),
               const SizedBox(height: 6),
               Container(
@@ -1232,7 +1022,11 @@ class _LearningPath extends StatelessWidget {
                         const SizedBox(height: 10),
                         Row(
                           children: [
-                            Icon(Icons.schedule_rounded, size: 18, color: c.textMuted),
+                            Icon(
+                              Icons.schedule_rounded,
+                              size: 18,
+                              color: c.textMuted,
+                            ),
                             const SizedBox(width: 8),
                             Text(
                               todayMeta,
@@ -1279,7 +1073,9 @@ class _LearningPath extends StatelessWidget {
                 decoration: BoxDecoration(
                   color: c.surfaceBg,
                   borderRadius: BorderRadius.circular(22),
-                  border: Border.all(color: c.borderColor.withValues(alpha: 0.7)),
+                  border: Border.all(
+                    color: c.borderColor.withValues(alpha: 0.7),
+                  ),
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -1478,24 +1274,15 @@ class _MicFab extends StatelessWidget {
                   ),
                 ],
               ),
-              child: const Icon(Icons.mic_rounded, color: Colors.white, size: 30),
+              child: const Icon(
+                Icons.mic_rounded,
+                color: Colors.white,
+                size: 30,
+              ),
             ),
           ),
         ),
       ),
     );
   }
-}
-
-class _HomeNotification {
-  final String title;
-  final String body;
-  final DateTime createdAt;
-  bool read;
-
-  _HomeNotification({
-    required this.title,
-    required this.body,
-    required this.createdAt,
-  }) : read = false;
 }

@@ -1,4 +1,3 @@
-
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../theme/app_colors.dart';
@@ -36,9 +35,10 @@ class _AnalysisScreenState extends State<AnalysisScreen>
       vsync: this,
       duration: const Duration(milliseconds: 1500),
     );
-    _progressAnimation = Tween<double>(begin: 0, end: 1).animate(
-      CurvedAnimation(parent: _controller, curve: Curves.easeOutCubic),
-    );
+    _progressAnimation = Tween<double>(
+      begin: 0,
+      end: 1,
+    ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeOutCubic));
 
     // Show loading then animate in
     Future.delayed(const Duration(milliseconds: 500), () {
@@ -61,16 +61,19 @@ class _AnalysisScreenState extends State<AnalysisScreen>
   Widget build(BuildContext context) {
     final c = context.colors;
     final words = widget.transcript.split(' ');
-    final fillerWords =
-        words.where((w) => w.contains('ờ') || w.contains('à')).length;
+    final fillerWords = words
+        .where((w) => w.contains('ờ') || w.contains('à'))
+        .length;
     final totalWords = words.length;
-    final wordsPerMinute =
-        widget.durationSeconds > 0
-            ? (totalWords / widget.durationSeconds * 60).round()
-            : 0;
+    final wordsPerMinute = widget.durationSeconds > 0
+        ? (totalWords / widget.durationSeconds * 60).round()
+        : 0;
 
     final pr = widget.pronunciationResult;
     final hasAzure = pr != null && pr.accuracyScore > 0;
+    final clarityScore = hasAzure
+        ? pr.accuracyScore.round()
+        : _localClarityScore(wordsPerMinute, fillerWords);
 
     return Scaffold(
       backgroundColor: c.scaffoldBg,
@@ -105,10 +108,7 @@ class _AnalysisScreenState extends State<AnalysisScreen>
                   const SizedBox(height: 20),
                   Text(
                     'Đang phân tích...',
-                    style: _base.copyWith(
-                      fontSize: 16,
-                      color: c.textMuted,
-                    ),
+                    style: _base.copyWith(fontSize: 16, color: c.textMuted),
                   ),
                 ],
               ),
@@ -163,18 +163,19 @@ class _AnalysisScreenState extends State<AnalysisScreen>
                       _MetricBar(
                         label: 'Tốc độ nói',
                         value: '$wordsPerMinute từ/phút',
-                        progress: _progressAnimation.value *
+                        progress:
+                            _progressAnimation.value *
                             (wordsPerMinute.clamp(0, 180) / 180),
                         color: wordsPerMinute > 160
                             ? c.feedbackAttention
                             : wordsPerMinute > 120
-                                ? c.feedbackWarning
-                                : c.feedbackGood,
+                            ? c.feedbackWarning
+                            : c.feedbackGood,
                         hint: wordsPerMinute > 160
                             ? 'Hơi nhanh, thử chậm lại nhé'
                             : wordsPerMinute > 120
-                                ? 'Khá tốt rồi!'
-                                : 'Tốc độ rất tốt!',
+                            ? 'Khá tốt rồi!'
+                            : 'Tốc độ rất tốt!',
                         c: c,
                       ),
                       const SizedBox(height: 14),
@@ -183,18 +184,19 @@ class _AnalysisScreenState extends State<AnalysisScreen>
                       _MetricBar(
                         label: 'Từ đệm (ờ, à)',
                         value: '$fillerWords từ',
-                        progress: _progressAnimation.value *
+                        progress:
+                            _progressAnimation.value *
                             (fillerWords.clamp(0, 10) / 10),
                         color: fillerWords > 5
                             ? c.feedbackAttention
                             : fillerWords > 2
-                                ? c.feedbackWarning
-                                : c.feedbackGood,
+                            ? c.feedbackWarning
+                            : c.feedbackGood,
                         hint: fillerWords > 5
                             ? 'Thử giảm từ đệm nhé'
                             : fillerWords > 2
-                                ? 'Không nhiều, tiếp tục cải thiện'
-                                : 'Rất ít từ đệm, tuyệt vời!',
+                            ? 'Không nhiều, tiếp tục cải thiện'
+                            : 'Rất ít từ đệm, tuyệt vời!',
                         c: c,
                       ),
                       const SizedBox(height: 14),
@@ -205,12 +207,30 @@ class _AnalysisScreenState extends State<AnalysisScreen>
                         value: hasAzure
                             ? '${pr.fluencyScore.round()}%'
                             : 'Khá tốt',
-                        progress: _progressAnimation.value *
+                        progress:
+                            _progressAnimation.value *
                             (hasAzure ? pr.fluencyScore / 100 : 0.72),
                         color: c.feedbackGood,
                         hint: hasAzure
                             ? _fluencyHint(pr.fluencyScore)
                             : 'Bạn nói trôi chảy phần lớn thời gian',
+                        c: c,
+                      ),
+                      const SizedBox(height: 14),
+
+                      _MetricBar(
+                        label: 'Độ rõ',
+                        value: '$clarityScore%',
+                        progress:
+                            _progressAnimation.value * (clarityScore / 100),
+                        color: clarityScore >= 80
+                            ? c.feedbackGood
+                            : clarityScore >= 65
+                            ? c.feedbackWarning
+                            : c.feedbackAttention,
+                        hint: hasAzure
+                            ? _clarityHint(clarityScore)
+                            : _localClarityHint(clarityScore),
                         c: c,
                       ),
                       const SizedBox(height: 24),
@@ -257,8 +277,8 @@ class _AnalysisScreenState extends State<AnalysisScreen>
                         message: hasAzure
                             ? _buildAzureAdvice(pr)
                             : 'Bạn đã truyền đạt nội dung rất rõ ràng! Hãy thử hít '
-                                'một hơi sâu và nói chậm lại một nhịp ở đoạn giữa nhé. '
-                                'Việc giảm bớt từ đệm sẽ giúp bài nói thêm tự tin.',
+                                  'một hơi sâu và nói chậm lại một nhịp ở đoạn giữa nhé. '
+                                  'Việc giảm bớt từ đệm sẽ giúp bài nói thêm tự tin.',
                         feedbackColor: c.feedbackGood,
                         icon: Icons.auto_awesome_rounded,
                       ),
@@ -305,17 +325,17 @@ class _AnalysisScreenState extends State<AnalysisScreen>
     final overallScore = hasAzure ? pr!.overallScore : null;
     final emoji = overallScore != null
         ? (overallScore >= 80
-            ? '🌟'
-            : overallScore >= 60
-                ? '👍'
-                : '💪')
+              ? '🌟'
+              : overallScore >= 60
+              ? '👍'
+              : '💪')
         : '👍';
     final title = overallScore != null
         ? (overallScore >= 80
-            ? 'Xuất sắc!'
-            : overallScore >= 60
-                ? 'Khá tốt!'
-                : 'Tiếp tục luyện tập!')
+              ? 'Xuất sắc!'
+              : overallScore >= 60
+              ? 'Khá tốt!'
+              : 'Tiếp tục luyện tập!')
         : 'Bạn đã làm rất tốt!';
 
     return Container(
@@ -390,7 +410,10 @@ class _AnalysisScreenState extends State<AnalysisScreen>
   }
 
   // ── Azure word highlights (color-coded by accuracy) ──
-  Widget _buildAzureWordHighlights(List<WordResult> words, AppColorsExtension c) {
+  Widget _buildAzureWordHighlights(
+    List<WordResult> words,
+    AppColorsExtension c,
+  ) {
     return Container(
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
@@ -507,6 +530,26 @@ class _AnalysisScreenState extends State<AnalysisScreen>
     return 'Hãy luyện thêm nhé, nói chậm rãi và tự tin hơn.';
   }
 
+  int _localClarityScore(int wordsPerMinute, int fillerWords) {
+    final speedPenalty = (wordsPerMinute - 145).abs().clamp(0, 35);
+    final fillerPenalty = (fillerWords * 6).clamp(0, 24);
+    return (88 - speedPenalty - fillerPenalty).clamp(55, 95);
+  }
+
+  String _clarityHint(int score) {
+    if (score >= 85) return 'Bạn phát âm khá rõ, người nghe sẽ dễ theo dõi.';
+    if (score >= 65) {
+      return 'Khá ổn. Hãy nhấn âm cuối và nói chậm hơn một chút.';
+    }
+    return 'Cần nói rõ âm hơn và chia cụm câu ngắn hơn để dễ nghe.';
+  }
+
+  String _localClarityHint(int score) {
+    if (score >= 85) return 'Nhịp nói và cách diễn đạt của bạn khá rõ ràng.';
+    if (score >= 65) return 'Ổn rồi. Thử giảm từ đệm và giữ tốc độ đều hơn.';
+    return 'Hãy nói chậm hơn và ngắt cụm rõ hơn để người nghe dễ hiểu.';
+  }
+
   String _buildAzureAdvice(PronunciationResult pr) {
     final parts = <String>[];
 
@@ -514,10 +557,10 @@ class _AnalysisScreenState extends State<AnalysisScreen>
       parts.add('Phát âm của bạn rất chính xác!');
     } else if (pr.accuracyScore >= 60) {
       parts.add(
-          'Phát âm khá tốt. Hãy chú ý các từ được đánh dấu để cải thiện.');
+        'Phát âm khá tốt. Hãy chú ý các từ được đánh dấu để cải thiện.',
+      );
     } else {
-      parts.add(
-          'Hãy luyện phát âm thêm nhé. Thử nghe mẫu và lặp lại từng từ.');
+      parts.add('Hãy luyện phát âm thêm nhé. Thử nghe mẫu và lặp lại từng từ.');
     }
 
     if (pr.fluencyScore < 70) {
@@ -754,8 +797,10 @@ class _MetricBar extends StatelessWidget {
                 ),
               ),
               Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 4,
+                ),
                 decoration: BoxDecoration(
                   color: color.withValues(alpha: 0.12),
                   borderRadius: BorderRadius.circular(10),
@@ -828,9 +873,7 @@ class _ActionButton extends StatelessWidget {
               gradient: filled ? c.heroGradient : null,
               color: filled ? null : c.cardBg,
               borderRadius: BorderRadius.circular(16),
-              border: filled
-                  ? null
-                  : Border.all(color: c.borderColor),
+              border: filled ? null : Border.all(color: c.borderColor),
             ),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.center,

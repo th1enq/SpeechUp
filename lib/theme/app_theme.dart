@@ -30,12 +30,24 @@ class AppTheme {
         ),
         iconTheme: IconThemeData(color: AppColorsExtension.light.textHeading),
       ),
+      iconTheme: IconThemeData(
+        color: AppColorsExtension.light.textHeading,
+        size: 24,
+        fill: 0,
+        weight: 400,
+        grade: 0,
+        opticalSize: 24,
+      ),
+      iconButtonTheme: IconButtonThemeData(
+        style: IconButton.styleFrom(
+          foregroundColor: AppColorsExtension.light.textHeading,
+          disabledForegroundColor: AppColorsExtension.light.textMuted,
+        ),
+      ),
       cardTheme: CardThemeData(
         color: AppColorsExtension.light.cardBg,
         elevation: 0,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(20),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         margin: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
       ),
       elevatedButtonTheme: ElevatedButtonThemeData(
@@ -73,22 +85,26 @@ class AppTheme {
         unselectedItemColor: AppColorsExtension.light.navInactive,
         type: BottomNavigationBarType.fixed,
         elevation: 0,
-        selectedLabelStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+        selectedLabelStyle: const TextStyle(
+          fontSize: 12,
+          fontWeight: FontWeight.w600,
+        ),
         unselectedLabelStyle: const TextStyle(fontSize: 11),
       ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
         fillColor: AppColorsExtension.light.surfaceBg,
-        contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 20,
+          vertical: 16,
+        ),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(16),
           borderSide: BorderSide.none,
         ),
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(16),
-          borderSide: BorderSide(
-            color: AppColorsExtension.light.borderColor,
-          ),
+          borderSide: BorderSide(color: AppColorsExtension.light.borderColor),
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(16),
@@ -143,12 +159,24 @@ class AppTheme {
         ),
         iconTheme: IconThemeData(color: AppColorsExtension.dark.textHeading),
       ),
+      iconTheme: IconThemeData(
+        color: AppColorsExtension.dark.textHeading,
+        size: 24,
+        fill: 0,
+        weight: 400,
+        grade: 0,
+        opticalSize: 24,
+      ),
+      iconButtonTheme: IconButtonThemeData(
+        style: IconButton.styleFrom(
+          foregroundColor: AppColorsExtension.dark.textHeading,
+          disabledForegroundColor: AppColorsExtension.dark.textMuted,
+        ),
+      ),
       cardTheme: CardThemeData(
         color: AppColorsExtension.dark.cardBg,
         elevation: 0,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(20),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         margin: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
       ),
       elevatedButtonTheme: ElevatedButtonThemeData(
@@ -186,22 +214,26 @@ class AppTheme {
         unselectedItemColor: AppColorsExtension.dark.navInactive,
         type: BottomNavigationBarType.fixed,
         elevation: 0,
-        selectedLabelStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+        selectedLabelStyle: const TextStyle(
+          fontSize: 12,
+          fontWeight: FontWeight.w600,
+        ),
         unselectedLabelStyle: const TextStyle(fontSize: 11),
       ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
         fillColor: AppColorsExtension.dark.surfaceBg,
-        contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 20,
+          vertical: 16,
+        ),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(16),
           borderSide: BorderSide.none,
         ),
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(16),
-          borderSide: BorderSide(
-            color: AppColorsExtension.dark.borderColor,
-          ),
+          borderSide: BorderSide(color: AppColorsExtension.dark.borderColor),
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(16),

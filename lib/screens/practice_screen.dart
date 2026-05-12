@@ -1,19 +1,24 @@
+import 'dart:async';
 import 'dart:typed_data';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:record/record.dart';
 import '../main.dart' show isFirebaseSupported;
 import '../l10n/app_language.dart';
 import '../services/speech_input_service.dart';
+import '../services/cloud_speech_service.dart';
+import '../services/native_speech_service.dart';
 import '../services/google_tts_service.dart';
 import '../services/azure_pronunciation_service.dart';
 import '../theme/app_colors.dart';
 import '../services/firestore_service.dart';
 import '../models/practice_session.dart';
 import '../models/pronunciation_result.dart';
-import '../widgets/notifications_bell_button.dart';
+import '../widgets/screen_header.dart';
 import 'analysis_screen.dart';
 
 class PracticeScreen extends StatefulWidget {
@@ -25,6 +30,146 @@ class PracticeScreen extends StatefulWidget {
 
 class _PracticeScreenState extends State<PracticeScreen> {
   TextStyle get _display => GoogleFonts.plusJakartaSans();
+
+  List<_PracticePromptOption> _optionsForLevel(_PracticeDifficulty level) {
+    final vi = appLanguage.locale.languageCode == 'vi';
+    switch (level) {
+      case _PracticeDifficulty.easy:
+        return [
+          _PracticePromptOption(
+            level: level,
+            exerciseType: 'read',
+            title: vi ? 'Chào hỏi hằng ngày' : 'Daily greetings',
+            content: vi
+                ? 'Xin chào, rất vui được gặp bạn hôm nay.'
+                : 'Hello, it is nice to meet you today.',
+            focus: vi
+                ? 'Câu ngắn, từ quen thuộc, nhịp nói chậm.'
+                : 'Short sentence, familiar words, slower pacing.',
+            lengthLabel: vi ? '1 câu ngắn' : '1 short sentence',
+            vocabularyLabel: vi ? 'Từ vựng cơ bản' : 'Basic vocabulary',
+          ),
+          _PracticePromptOption(
+            level: level,
+            exerciseType: 'read',
+            title: vi ? 'Giới thiệu bản thân' : 'Self introduction',
+            content: vi
+                ? 'Tôi là Bao và tôi đang luyện nói tiếng Anh mỗi ngày.'
+                : 'My name is Bao and I practice speaking English every day.',
+            focus: vi
+                ? 'Làm quen với câu hoàn chỉnh và phát âm rõ từng từ.'
+                : 'Get used to full sentences and clearer articulation.',
+            lengthLabel: vi ? '1 câu vừa' : '1 medium sentence',
+            vocabularyLabel: vi ? 'Chủ đề quen thuộc' : 'Familiar topic',
+          ),
+          _PracticePromptOption(
+            level: level,
+            exerciseType: 'read',
+            title: vi ? 'Sinh hoạt thường ngày' : 'Daily routine',
+            content: vi
+                ? 'Buổi sáng tôi thường uống cà phê trước khi bắt đầu làm việc.'
+                : 'In the morning, I usually drink coffee before I start working.',
+            focus: vi
+                ? 'Tăng nhẹ độ dài câu nhưng vẫn dễ hiểu.'
+                : 'Slightly longer sentence while staying easy to follow.',
+            lengthLabel: vi ? '1 câu dài vừa' : '1 longer sentence',
+            vocabularyLabel: vi ? 'Mô tả đơn giản' : 'Simple description',
+          ),
+        ];
+      case _PracticeDifficulty.medium:
+        return [
+          _PracticePromptOption(
+            level: level,
+            exerciseType: 'shadowing',
+            title: vi ? 'Họp công việc ngắn' : 'Short work update',
+            content: vi
+                ? 'Hôm nay nhóm của tôi sẽ rà soát tiến độ và chốt kế hoạch cho tuần tới.'
+                : 'Today my team will review progress and finalize the plan for next week.',
+            focus: vi
+                ? 'Câu dài hơn, có nhiều cụm ý cần giữ nhịp ổn định.'
+                : 'Longer sentence with multiple thought groups to pace well.',
+            lengthLabel: vi ? '1 câu phức' : '1 complex sentence',
+            vocabularyLabel: vi ? 'Từ vựng công việc' : 'Work vocabulary',
+          ),
+          _PracticePromptOption(
+            level: level,
+            exerciseType: 'shadowing',
+            title: vi ? 'Đặt lịch hẹn' : 'Scheduling a meeting',
+            content: vi
+                ? 'Nếu bạn rảnh vào chiều thứ Năm, chúng ta có thể gặp nhau để thảo luận chi tiết hơn.'
+                : 'If you are free on Thursday afternoon, we can meet to discuss the details further.',
+            focus: vi
+                ? 'Luyện nối âm, ngắt câu và giữ mạch nói tự nhiên.'
+                : 'Practice linking, phrasing, and natural flow.',
+            lengthLabel: vi ? '1 câu nhiều vế' : '1 multi-clause sentence',
+            vocabularyLabel: vi ? 'Tình huống giao tiếp' : 'Functional phrases',
+          ),
+          _PracticePromptOption(
+            level: level,
+            exerciseType: 'shadowing',
+            title: vi ? 'Mô tả trải nghiệm' : 'Describe an experience',
+            content: vi
+                ? 'Chuyến đi cuối tuần vừa rồi giúp tôi thư giãn và có thêm nhiều ý tưởng mới cho công việc.'
+                : 'My weekend trip helped me relax and gave me many new ideas for work.',
+            focus: vi
+                ? 'Tăng độ dài và yêu cầu kiểm soát ngữ điệu tốt hơn.'
+                : 'More length with stronger intonation control.',
+            lengthLabel: vi ? '1 câu dài' : '1 long sentence',
+            vocabularyLabel: vi
+                ? 'Mô tả trải nghiệm'
+                : 'Descriptive vocabulary',
+          ),
+        ];
+      case _PracticeDifficulty.hard:
+        return [
+          _PracticePromptOption(
+            level: level,
+            exerciseType: 'slow',
+            title: vi ? 'Trình bày quan điểm' : 'Present an opinion',
+            content: vi
+                ? 'Theo tôi, việc luyện nói mỗi ngày không chỉ cải thiện phát âm mà còn giúp tăng phản xạ giao tiếp trong môi trường thực tế.'
+                : 'In my opinion, practicing speaking every day not only improves pronunciation but also strengthens communication reflexes in real situations.',
+            focus: vi
+                ? 'Câu dài, từ trừu tượng hơn, cần kiểm soát hơi và nhịp.'
+                : 'Long sentence, more abstract wording, stronger breath control.',
+            lengthLabel: vi ? '1 câu rất dài' : '1 very long sentence',
+            vocabularyLabel: vi
+                ? 'Từ vựng học thuật nhẹ'
+                : 'Light academic vocabulary',
+          ),
+          _PracticePromptOption(
+            level: level,
+            exerciseType: 'slow',
+            title: vi ? 'Báo cáo tiến độ' : 'Progress report',
+            content: vi
+                ? 'Mặc dù tiến độ hiện tại đang đi đúng hướng, chúng tôi vẫn cần tối ưu quy trình phối hợp để giảm thêm thời gian phản hồi giữa các bộ phận.'
+                : 'Although the current progress is on track, we still need to optimize coordination so we can further reduce response time across teams.',
+            focus: vi
+                ? 'Nhiều cụm thông tin, cần nói chậm nhưng vẫn rõ ý.'
+                : 'Several information chunks that require slow, clear delivery.',
+            lengthLabel: vi ? '1 câu chuyên môn' : '1 professional sentence',
+            vocabularyLabel: vi
+                ? 'Từ vựng công việc nâng cao'
+                : 'Advanced work vocabulary',
+          ),
+          _PracticePromptOption(
+            level: level,
+            exerciseType: 'slow',
+            title: vi ? 'Giải thích quyết định' : 'Explain a decision',
+            content: vi
+                ? 'Chúng tôi chọn phương án này vì nó cân bằng tốt hơn giữa chi phí triển khai, trải nghiệm người dùng và khả năng mở rộng trong tương lai.'
+                : 'We chose this approach because it creates a better balance between implementation cost, user experience, and long-term scalability.',
+            focus: vi
+                ? 'Luyện độ rõ của phụ âm cuối và nhấn ý chính.'
+                : 'Practice final consonants and emphasis on key ideas.',
+            lengthLabel: vi ? '1 câu lập luận' : '1 reasoning sentence',
+            vocabularyLabel: vi
+                ? 'Lập luận và phân tích'
+                : 'Reasoning vocabulary',
+          ),
+        ];
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -39,78 +184,24 @@ class _PracticeScreenState extends State<PracticeScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Row(
-                  children: [
-                    const SizedBox(width: 1),
-                  ],
-                ),
-                NotificationsBellButton(
-                  iconColor: AppColors.dashboardNavy,
-                  iconSize: 26,
-                ),
-              ],
-            ),
-            SizedBox(height: compact ? 16 : 22),
-            Text(
-              t('practice.title'),
-              style: _display.copyWith(
-                fontSize: compact ? 26 : 30,
-                fontWeight: FontWeight.w800,
-                color: AppColors.dashboardNavy,
-                height: 1.15,
-              ),
-            ),
-            const SizedBox(height: 6),
-            Text(
-              t('practice.subtitle'),
-              style: _display.copyWith(
-                fontSize: compact ? 14 : 15,
-                fontWeight: FontWeight.w500,
-                color: AppColors.dashboardTextMuted,
-                height: 1.45,
-              ),
+            ScreenHeader(
+              title: t('practice.title'),
+              subtitle: t('practice.subtitle'),
             ),
             SizedBox(height: compact ? 18 : 24),
-            _PracticeExerciseCard(
-              variant: _ExerciseVisual.readSentence,
-              title: t('practice.readTitle'),
-              body: t('practice.readBody'),
-              bodyItalic: true,
-              tagLabel: t('practice.easy'),
-              onTap: () => _openRecording(
-                context,
-                exerciseType: 'read',
-                content: t('practice.readBody'),
-              ),
+            _PracticeLevelCard(
+              level: _PracticeDifficulty.easy,
+              onTap: () => _openLevelSheet(_PracticeDifficulty.easy),
             ),
             const SizedBox(height: 14),
-            _PracticeExerciseCard(
-              variant: _ExerciseVisual.shadowing,
-              title: t('practice.shadowingTitle'),
-              body: t('practice.shadowingBody'),
-              bodyItalic: false,
-              tagLabel: t('practice.medium'),
-              onTap: () => _openRecording(
-                context,
-                exerciseType: 'shadowing',
-                content: 'Repeat after listening...',
-              ),
+            _PracticeLevelCard(
+              level: _PracticeDifficulty.medium,
+              onTap: () => _openLevelSheet(_PracticeDifficulty.medium),
             ),
             const SizedBox(height: 14),
-            _PracticeExerciseCard(
-              variant: _ExerciseVisual.slowSpeech,
-              title: t('practice.slowTitle'),
-              body: t('practice.slowBody'),
-              bodyItalic: false,
-              tagLabel: t('practice.hard'),
-              onTap: () => _openRecording(
-                context,
-                exerciseType: 'slow',
-                content: 'Speak slowly and clearly...',
-              ),
+            _PracticeLevelCard(
+              level: _PracticeDifficulty.hard,
+              onTap: () => _openLevelSheet(_PracticeDifficulty.hard),
             ),
             const SizedBox(height: 22),
             Container(
@@ -169,116 +260,206 @@ class _PracticeScreenState extends State<PracticeScreen> {
       ),
     );
   }
+
+  Future<void> _openLevelSheet(_PracticeDifficulty level) async {
+    final options = _optionsForLevel(level);
+    final selected = await showModalBottomSheet<_PracticePromptOption>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      backgroundColor: context.colors.surfaceBg,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      ),
+      builder: (context) {
+        final style = GoogleFonts.plusJakartaSans();
+        final c = context.colors;
+        return SafeArea(
+          top: false,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  level.sheetTitle,
+                  style: style.copyWith(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w900,
+                    color: c.textHeading,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  level.sheetSubtitle,
+                  style: style.copyWith(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500,
+                    color: c.textMuted,
+                    height: 1.45,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Flexible(
+                  child: ListView.separated(
+                    shrinkWrap: true,
+                    itemCount: options.length,
+                    separatorBuilder: (_, _) => const SizedBox(height: 12),
+                    itemBuilder: (context, index) {
+                      final option = options[index];
+                      return _PracticePromptOptionTile(
+                        option: option,
+                        onTap: () => Navigator.of(context).pop(option),
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+
+    if (!mounted || selected == null) return;
+    _openRecording(
+      context,
+      exerciseType: selected.exerciseType,
+      content: selected.content,
+    );
+  }
 }
 
-enum _ExerciseVisual { readSentence, shadowing, slowSpeech }
+enum _PracticeDifficulty { easy, medium, hard }
 
-class _PracticeExerciseCard extends StatelessWidget {
-  final _ExerciseVisual variant;
+class _PracticePromptOption {
+  final _PracticeDifficulty level;
+  final String exerciseType;
   final String title;
-  final String body;
-  final bool bodyItalic;
-  final String tagLabel;
+  final String content;
+  final String focus;
+  final String lengthLabel;
+  final String vocabularyLabel;
+
+  const _PracticePromptOption({
+    required this.level,
+    required this.exerciseType,
+    required this.title,
+    required this.content,
+    required this.focus,
+    required this.lengthLabel,
+    required this.vocabularyLabel,
+  });
+}
+
+extension on _PracticeDifficulty {
+  String get label {
+    final vi = appLanguage.locale.languageCode == 'vi';
+    switch (this) {
+      case _PracticeDifficulty.easy:
+        return vi ? 'Dễ' : 'Easy';
+      case _PracticeDifficulty.medium:
+        return vi ? 'Trung bình' : 'Medium';
+      case _PracticeDifficulty.hard:
+        return vi ? 'Khó' : 'Hard';
+    }
+  }
+
+  String get summary {
+    final vi = appLanguage.locale.languageCode == 'vi';
+    switch (this) {
+      case _PracticeDifficulty.easy:
+        return vi
+            ? 'Câu ngắn, từ quen thuộc, phù hợp để bắt đầu.'
+            : 'Short sentences with familiar words to get started.';
+      case _PracticeDifficulty.medium:
+        return vi
+            ? 'Câu dài hơn, có nhiều cụm ý và cần giữ nhịp đều.'
+            : 'Longer sentences with more phrasing and pacing control.';
+      case _PracticeDifficulty.hard:
+        return vi
+            ? 'Câu dài, từ vựng khó hơn và cần kiểm soát ngữ điệu tốt.'
+            : 'Longer prompts with tougher vocabulary and stronger intonation control.';
+    }
+  }
+
+  String get sheetTitle {
+    final vi = appLanguage.locale.languageCode == 'vi';
+    switch (this) {
+      case _PracticeDifficulty.easy:
+        return vi ? 'Chọn bài luyện mức dễ' : 'Choose an easy practice prompt';
+      case _PracticeDifficulty.medium:
+        return vi
+            ? 'Chọn bài luyện mức trung bình'
+            : 'Choose a medium practice prompt';
+      case _PracticeDifficulty.hard:
+        return vi ? 'Chọn bài luyện mức khó' : 'Choose a hard practice prompt';
+    }
+  }
+
+  String get sheetSubtitle {
+    final vi = appLanguage.locale.languageCode == 'vi';
+    switch (this) {
+      case _PracticeDifficulty.easy:
+        return vi
+            ? 'Phù hợp để làm quen với nhịp nói, phát âm cơ bản và câu ngắn.'
+            : 'Best for getting comfortable with speaking rhythm and short prompts.';
+      case _PracticeDifficulty.medium:
+        return vi
+            ? 'Tập câu dài hơn, ghép nhiều ý và kiểm soát tốc độ rõ ràng.'
+            : 'Train with longer lines, more ideas, and clearer pacing.';
+      case _PracticeDifficulty.hard:
+        return vi
+            ? 'Dành cho câu nhiều thông tin, từ vựng nâng cao và ngữ điệu tốt.'
+            : 'For denser prompts, advanced vocabulary, and stronger delivery.';
+    }
+  }
+
+  Color get accent {
+    switch (this) {
+      case _PracticeDifficulty.easy:
+        return AppColors.onboardingBlue;
+      case _PracticeDifficulty.medium:
+        return AppColors.practicePurple;
+      case _PracticeDifficulty.hard:
+        return AppColors.practicePurpleDeep;
+    }
+  }
+
+  Color background(AppColorsExtension c) {
+    switch (this) {
+      case _PracticeDifficulty.easy:
+        return c.cardBg;
+      case _PracticeDifficulty.medium:
+        return c.practiceCardLavender;
+      case _PracticeDifficulty.hard:
+        return c.practiceCardBlush;
+    }
+  }
+
+  IconData get icon {
+    switch (this) {
+      case _PracticeDifficulty.easy:
+        return Icons.spa_rounded;
+      case _PracticeDifficulty.medium:
+        return Icons.tune_rounded;
+      case _PracticeDifficulty.hard:
+        return Icons.bolt_rounded;
+    }
+  }
+}
+
+class _PracticeLevelCard extends StatelessWidget {
+  final _PracticeDifficulty level;
   final VoidCallback onTap;
 
-  const _PracticeExerciseCard({
-    required this.variant,
-    required this.title,
-    required this.body,
-    required this.bodyItalic,
-    required this.tagLabel,
-    required this.onTap,
-  });
+  const _PracticeLevelCard({required this.level, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
     final style = GoogleFonts.plusJakartaSans();
     final c = context.colors;
-
-    late final Color cardBg;
-    late final Widget leadingIcon;
-    late final Color tagBg;
-    late final Color tagText;
-    late final IconData watermark;
-    late final Color watermarkColor;
-    late final Widget action;
-
-    switch (variant) {
-      case _ExerciseVisual.readSentence:
-        cardBg = c.cardBg;
-        leadingIcon = Container(
-          width: 52,
-          height: 52,
-          decoration: const BoxDecoration(
-            shape: BoxShape.circle,
-            color: AppColors.onboardingBlue,
-          ),
-          child: const Icon(
-            Icons.menu_book_rounded,
-            color: Colors.white,
-            size: 26,
-          ),
-        );
-        tagBg = c.practiceTagEasyBg;
-        tagText = c.practiceTagEasyText;
-        watermark = Icons.menu_book_rounded;
-        watermarkColor = AppColors.onboardingBlue;
-        action = _GradientStartButton(
-          onTap: onTap,
-          label: appLanguage.t('common.start'),
-        );
-        break;
-      case _ExerciseVisual.shadowing:
-        cardBg = c.practiceCardLavender;
-        leadingIcon = Container(
-          width: 52,
-          height: 52,
-          decoration: const BoxDecoration(
-            shape: BoxShape.circle,
-            color: Color(0xFFE9D5FF),
-          ),
-          child: Icon(
-            Icons.graphic_eq_rounded,
-            color: AppColors.practicePurple,
-            size: 26,
-          ),
-        );
-        tagBg = c.practiceTagMidBg;
-        tagText = c.practiceTagMidText;
-        watermark = Icons.fitness_center_rounded;
-        watermarkColor = AppColors.practicePurple;
-        action = _OutlineStartButton(
-          onTap: onTap,
-          label: appLanguage.t('common.start'),
-          foreground: AppColors.practicePurpleDeep,
-        );
-        break;
-      case _ExerciseVisual.slowSpeech:
-        cardBg = c.practiceCardBlush;
-        leadingIcon = Container(
-          width: 52,
-          height: 52,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            color: AppColors.practicePurple,
-          ),
-          child: const Icon(
-            Icons.timer_outlined,
-            color: Colors.white,
-            size: 26,
-          ),
-        );
-        tagBg = c.practiceTagMidBg;
-        tagText = c.practiceTagMidText;
-        watermark = Icons.speed_rounded;
-        watermarkColor = AppColors.practicePurpleDeep;
-        action = _OutlineStartButton(
-          onTap: onTap,
-          label: appLanguage.t('common.start'),
-          foreground: AppColors.practicePurpleDeep,
-        );
-        break;
-    }
 
     return Container(
       decoration: BoxDecoration(
@@ -300,13 +481,13 @@ class _PracticeExerciseCard extends StatelessWidget {
               right: -6,
               bottom: -6,
               child: Icon(
-                watermark,
+                level.icon,
                 size: 118,
-                color: watermarkColor.withValues(alpha: 0.07),
+                color: level.accent.withValues(alpha: 0.08),
               ),
             ),
             ColoredBox(
-              color: cardBg,
+              color: level.background(c),
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(18, 18, 18, 18),
                 child: Column(
@@ -315,7 +496,19 @@ class _PracticeExerciseCard extends StatelessWidget {
                     Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        leadingIcon,
+                        Container(
+                          width: 52,
+                          height: 52,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: level.accent.withValues(alpha: 0.16),
+                          ),
+                          child: Icon(
+                            level.icon,
+                            color: level.accent,
+                            size: 26,
+                          ),
+                        ),
                         const SizedBox(width: 14),
                         Expanded(
                           child: Column(
@@ -327,24 +520,24 @@ class _PracticeExerciseCard extends StatelessWidget {
                                   vertical: 5,
                                 ),
                                 decoration: BoxDecoration(
-                                  color: tagBg,
+                                  color: level.accent.withValues(alpha: 0.12),
                                   borderRadius: BorderRadius.circular(20),
                                 ),
                                 child: Text(
-                                  tagLabel,
+                                  level.label.toUpperCase(),
                                   style: style.copyWith(
                                     fontSize: 11,
                                     fontWeight: FontWeight.w800,
                                     letterSpacing: 0.4,
-                                    color: tagText,
+                                    color: level.accent,
                                   ),
                                 ),
                               ),
                               const SizedBox(height: 10),
                               Text(
-                                title,
+                                level.label,
                                 style: style.copyWith(
-                                  fontSize: 17,
+                                  fontSize: 20,
                                   fontWeight: FontWeight.w800,
                                   color: c.textHeading,
                                   height: 1.2,
@@ -357,25 +550,195 @@ class _PracticeExerciseCard extends StatelessWidget {
                     ),
                     const SizedBox(height: 14),
                     Text(
-                      bodyItalic ? '"$body"' : body,
+                      level.summary,
                       style: style.copyWith(
                         fontSize: 14,
                         fontWeight: FontWeight.w500,
-                        fontStyle: bodyItalic
-                            ? FontStyle.italic
-                            : FontStyle.normal,
                         color: c.textMuted,
                         height: 1.5,
                       ),
                     ),
+                    const SizedBox(height: 14),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        _LevelMetaChip(
+                          icon: Icons.route_rounded,
+                          label: appLanguage.locale.languageCode == 'vi'
+                              ? 'Độ dài tăng dần'
+                              : 'Increasing length',
+                        ),
+                        _LevelMetaChip(
+                          icon: Icons.abc_rounded,
+                          label: appLanguage.locale.languageCode == 'vi'
+                              ? 'Từ vựng theo mức'
+                              : 'Level-based vocabulary',
+                        ),
+                        _LevelMetaChip(
+                          icon: Icons.touch_app_rounded,
+                          label: appLanguage.locale.languageCode == 'vi'
+                              ? 'Chạm để chọn bài'
+                              : 'Tap to choose prompt',
+                        ),
+                      ],
+                    ),
                     const SizedBox(height: 18),
-                    action,
+                    _GradientStartButton(
+                      onTap: onTap,
+                      label: appLanguage.locale.languageCode == 'vi'
+                          ? 'Chọn bài luyện'
+                          : 'Choose prompt',
+                    ),
                   ],
                 ),
               ),
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _PracticePromptOptionTile extends StatelessWidget {
+  final _PracticePromptOption option;
+  final VoidCallback onTap;
+
+  const _PracticePromptOptionTile({required this.option, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final style = GoogleFonts.plusJakartaSans();
+    final c = context.colors;
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(20),
+        child: Ink(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: option.level.background(c),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(
+              color: option.level.accent.withValues(alpha: 0.18),
+            ),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    width: 42,
+                    height: 42,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: option.level.accent.withValues(alpha: 0.14),
+                    ),
+                    child: Icon(
+                      option.level.icon,
+                      color: option.level.accent,
+                      size: 22,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          option.title,
+                          style: style.copyWith(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w800,
+                            color: c.textHeading,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          option.focus,
+                          style: style.copyWith(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w500,
+                            color: c.textMuted,
+                            height: 1.4,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Icon(Icons.arrow_forward_rounded, color: option.level.accent),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Text(
+                '"${option.content}"',
+                style: style.copyWith(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  fontStyle: FontStyle.italic,
+                  color: c.textHeading,
+                  height: 1.45,
+                ),
+              ),
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  _LevelMetaChip(
+                    icon: Icons.route_rounded,
+                    label: option.lengthLabel,
+                  ),
+                  _LevelMetaChip(
+                    icon: Icons.abc_rounded,
+                    label: option.vocabularyLabel,
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _LevelMetaChip extends StatelessWidget {
+  final IconData icon;
+  final String label;
+
+  const _LevelMetaChip({required this.icon, required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    final style = GoogleFonts.plusJakartaSans();
+    final c = context.colors;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+      decoration: BoxDecoration(
+        color: c.surfaceBg,
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: c.borderColor.withValues(alpha: 0.7)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: c.textMuted),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: style.copyWith(
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+              color: c.textMuted,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -421,46 +784,6 @@ class _GradientStartButton extends StatelessWidget {
   }
 }
 
-class _OutlineStartButton extends StatelessWidget {
-  final VoidCallback onTap;
-  final String label;
-  final Color foreground;
-
-  const _OutlineStartButton({
-    required this.onTap,
-    required this.label,
-    required this.foreground,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final style = GoogleFonts.plusJakartaSans();
-    final c = context.colors;
-    return SizedBox(
-      width: double.infinity,
-      height: 48,
-      child: Material(
-        color: c.surfaceBg,
-        borderRadius: BorderRadius.circular(14),
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(14),
-          child: Center(
-            child: Text(
-              label,
-              style: style.copyWith(
-                fontSize: 15,
-                fontWeight: FontWeight.w800,
-                color: foreground,
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
 class _RecordingScreen extends StatefulWidget {
   final String exerciseType;
   final String content;
@@ -473,17 +796,28 @@ class _RecordingScreen extends StatefulWidget {
 
 class _RecordingScreenState extends State<_RecordingScreen> {
   late final SpeechInputService _speechService;
+  final CloudSpeechService _cloudSpeechService = CloudSpeechService();
+  final NativeSpeechService _nativeSpeechService = NativeSpeechService();
+  final AudioRecorder _assessmentRecorder = AudioRecorder();
   final GoogleTtsService _ttsService = GoogleTtsService();
   final AudioPlayer _ttsPlayer = AudioPlayer();
   bool _isSubmitting = false;
   bool _isTtsLoading = false;
   bool _isTtsPlaying = false;
   bool _ttsAutoPlayed = false;
+  bool _useCloudSpeech = false;
+  bool _useNativeSpeech = false;
+  String? _lastSpeechError;
+  String? _assessmentAudioPath;
+  DateTime? _fallbackStartedAt;
+  Timer? _fallbackElapsedTicker;
+  Duration _fallbackElapsed = Duration.zero;
 
   @override
   void initState() {
     super.initState();
     _speechService = SpeechInputService()..addListener(_handleSpeechUpdate);
+    _nativeSpeechService.addListener(_handleNativeSpeechUpdate);
     _ttsPlayer.onPlayerComplete.listen((_) {
       if (!mounted) return;
       setState(() => _isTtsPlaying = false);
@@ -493,7 +827,7 @@ class _RecordingScreenState extends State<_RecordingScreen> {
         _ttsAutoPlayed = true;
         _speakPromptText();
       }
-      _startListening();
+      _checkMicAvailability().then((_) => _startListening());
     });
   }
 
@@ -501,23 +835,57 @@ class _RecordingScreenState extends State<_RecordingScreen> {
   void dispose() {
     _ttsPlayer.dispose();
     _speechService.removeListener(_handleSpeechUpdate);
+    _nativeSpeechService.removeListener(_handleNativeSpeechUpdate);
+    _fallbackElapsedTicker?.cancel();
+    _assessmentRecorder.dispose();
     super.dispose();
+  }
+
+  Future<void> _checkMicAvailability() async {
+    if (_speechService.isSupportedPlatform) {
+      final available = await _speechService.initialize(
+        localeId: _localeIdForApp(),
+      );
+      if (available) {
+        _useCloudSpeech = false;
+        _useNativeSpeech = false;
+        return;
+      }
+    }
+
+    if (_nativeSpeechService.isSupportedPlatform) {
+      final nativeOk = await _nativeSpeechService.initialize();
+      if (nativeOk) {
+        _useNativeSpeech = true;
+        _useCloudSpeech = false;
+        return;
+      }
+    }
+
+    if (_cloudSpeechService.isSupportedPlatform &&
+        _cloudSpeechService.isConfigured) {
+      final hasMic = await _cloudSpeechService.hasPermission();
+      if (hasMic) {
+        _useCloudSpeech = true;
+        _useNativeSpeech = false;
+      }
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     final display = GoogleFonts.plusJakartaSans();
     final compact = MediaQuery.sizeOf(context).width < 370;
-    final transcript = _speechService.recognizedText;
-    final durationSeconds = _speechService.elapsed.inSeconds;
+    final transcript = _activeRecognizedText;
+    final durationSeconds = _activeElapsed.inSeconds;
     final wordsPerMinute = _calculateWordsPerMinute(
       transcript,
       durationSeconds,
     );
-    final pausesLabel = _speechService.isListening
+    final pausesLabel = _isActiveListening
         ? appLanguage.t('practice.listening')
         : appLanguage.t('common.stop');
-    final clarity = _estimateClarity(_effectiveSoundLevel).round();
+    final micLevel = ((_effectiveSoundLevel / 40) * 100).round().clamp(0, 100);
 
     return Scaffold(
       body: Container(
@@ -584,9 +952,11 @@ class _RecordingScreenState extends State<_RecordingScreen> {
                 ),
                 SizedBox(height: compact ? 20 : 28),
                 Text(
-                  _speechService.isListening
+                  _isActiveListening
                       ? appLanguage.t('practice.listening')
-                      : appLanguage.t('practice.tapToStart'),
+                      : transcript.isEmpty
+                      ? appLanguage.t('practice.tapToStart')
+                      : appLanguage.t('common.stop'),
                   textAlign: TextAlign.center,
                   style: display.copyWith(
                     fontSize: compact ? 22 : 26,
@@ -631,9 +1001,7 @@ class _RecordingScreenState extends State<_RecordingScreen> {
                                   : Icons.volume_up_rounded,
                             ),
                       label: Text(
-                        _isTtsPlaying
-                            ? 'Stop voice'
-                            : 'Listen with Google TTS',
+                        _isTtsPlaying ? 'Stop voice' : 'Listen with Google TTS',
                       ),
                     ),
                   ),
@@ -696,10 +1064,13 @@ class _RecordingScreenState extends State<_RecordingScreen> {
                       ),
                       SizedBox(
                         width: (MediaQuery.sizeOf(context).width - 60) / 2,
-                        child: _RecordingMetricCard(
+                        child: _RecordingRealtimeMeterCard(
                           icon: Icons.graphic_eq_rounded,
-                          label: appLanguage.t('practice.metricClarity'),
-                          value: '$clarity%',
+                          label: appLanguage.locale.languageCode == 'vi'
+                              ? 'MỨC MIC'
+                              : 'MIC LEVEL',
+                          value: '$micLevel%',
+                          progress: micLevel / 100,
                         ),
                       ),
                     ],
@@ -726,10 +1097,13 @@ class _RecordingScreenState extends State<_RecordingScreen> {
                       ),
                       const SizedBox(width: 10),
                       Expanded(
-                        child: _RecordingMetricCard(
+                        child: _RecordingRealtimeMeterCard(
                           icon: Icons.graphic_eq_rounded,
-                          label: appLanguage.t('practice.metricClarity'),
-                          value: '$clarity%',
+                          label: appLanguage.locale.languageCode == 'vi'
+                              ? 'MỨC MIC'
+                              : 'MIC LEVEL',
+                          value: '$micLevel%',
+                          progress: micLevel / 100,
                         ),
                       ),
                     ],
@@ -757,7 +1131,7 @@ class _RecordingScreenState extends State<_RecordingScreen> {
                           ),
                           const Spacer(),
                           Text(
-                            _formatDuration(_speechService.elapsed),
+                            _formatDuration(_activeElapsed),
                             style: display.copyWith(
                               fontSize: 13,
                               fontWeight: FontWeight.w700,
@@ -792,7 +1166,7 @@ class _RecordingScreenState extends State<_RecordingScreen> {
                       onTap: _isSubmitting
                           ? null
                           : () {
-                              if (_speechService.isListening) {
+                              if (_isActiveListening) {
                                 _stopAndAnalyze();
                               } else {
                                 _startListening();
@@ -824,7 +1198,7 @@ class _RecordingScreenState extends State<_RecordingScreen> {
                                   ),
                                 )
                               : Text(
-                                  _speechService.isListening
+                                  _isActiveListening
                                       ? appLanguage.t('practice.stopRecording')
                                       : appLanguage.t('common.start'),
                                   style: display.copyWith(
@@ -838,8 +1212,7 @@ class _RecordingScreenState extends State<_RecordingScreen> {
                     ),
                   ),
                 ),
-                if (!_speechService.isSupportedPlatform ||
-                    _speechService.lastError != null) ...[
+                if (!_isMicSupported || _activeSpeechError != null) ...[
                   const SizedBox(height: 16),
                   Container(
                     padding: const EdgeInsets.all(14),
@@ -848,13 +1221,13 @@ class _RecordingScreenState extends State<_RecordingScreen> {
                       borderRadius: BorderRadius.circular(16),
                     ),
                     child: Text(
-                      !_speechService.isSupportedPlatform
+                      !_isMicSupported
                           ? appLanguage.t('practice.unsupportedPlatform')
-                          : _speechService.errorSummary.contains(
+                          : _activeSpeechErrorSummary.contains(
                               'service is not installed or unavailable',
                             )
-                          ? '${appLanguage.t('practice.recognizerUnavailable')}\n${_speechService.errorSummary}'
-                          : '${appLanguage.t('practice.permissionDenied')}\n${_speechService.errorSummary}',
+                          ? '${appLanguage.t('practice.recognizerUnavailable')}\n$_activeSpeechErrorSummary'
+                          : '${appLanguage.t('practice.permissionDenied')}\n$_activeSpeechErrorSummary',
                       style: display.copyWith(
                         fontSize: 13,
                         fontWeight: FontWeight.w600,
@@ -890,14 +1263,102 @@ class _RecordingScreenState extends State<_RecordingScreen> {
   }
 
   double get _effectiveSoundLevel {
-    final level = _speechService.soundLevel;
+    final level = _useNativeSpeech
+        ? _nativeSpeechService.soundLevel
+        : _speechService.soundLevel;
     if (level.isNaN || level.isInfinite) return 0;
     return level.clamp(0, 40).toDouble();
   }
 
+  bool get _isActiveListening {
+    if (_useNativeSpeech) return _nativeSpeechService.isListening;
+    if (_useCloudSpeech) return _cloudSpeechService.isListening;
+    return _speechService.isListening;
+  }
+
+  bool get _isMicSupported {
+    return _speechService.isSupportedPlatform ||
+        _nativeSpeechService.isSupportedPlatform ||
+        _cloudSpeechService.isSupportedPlatform;
+  }
+
+  String get _activeRecognizedText {
+    if (_useNativeSpeech) return _nativeSpeechService.recognizedText;
+    if (_useCloudSpeech) return _cloudSpeechService.recognizedText;
+    return _speechService.recognizedText;
+  }
+
+  String? get _activeSpeechError {
+    if (_useNativeSpeech) return _nativeSpeechService.lastError;
+    if (_useCloudSpeech) return _cloudSpeechService.lastError;
+    return _speechService.lastError;
+  }
+
+  String get _activeSpeechErrorSummary {
+    if (_useNativeSpeech) return _nativeSpeechService.errorSummary;
+    if (_useCloudSpeech) return _cloudSpeechService.errorSummary;
+    return _speechService.errorSummary;
+  }
+
+  Duration get _activeElapsed {
+    if (_useNativeSpeech || _useCloudSpeech) return _fallbackElapsed;
+    return _speechService.elapsed;
+  }
+
+  void _startFallbackElapsed() {
+    _fallbackStartedAt = DateTime.now();
+    _fallbackElapsed = Duration.zero;
+    _fallbackElapsedTicker?.cancel();
+    _fallbackElapsedTicker = Timer.periodic(const Duration(milliseconds: 250), (
+      _,
+    ) {
+      if (!mounted || _fallbackStartedAt == null) return;
+      setState(() {
+        _fallbackElapsed = DateTime.now().difference(_fallbackStartedAt!);
+      });
+    });
+  }
+
+  void _stopFallbackElapsed() {
+    _fallbackElapsedTicker?.cancel();
+    _fallbackElapsedTicker = null;
+    if (_fallbackStartedAt != null) {
+      _fallbackElapsed = DateTime.now().difference(_fallbackStartedAt!);
+      _fallbackStartedAt = null;
+    }
+  }
+
   Future<void> _startListening() async {
-    if (!_speechService.isSupportedPlatform) {
+    if (!_isMicSupported) {
       setState(() {});
+      return;
+    }
+
+    _lastSpeechError = null;
+
+    if (_useCloudSpeech) {
+      _cloudSpeechService.resetSession();
+      final didStart = await _cloudSpeechService.startListening(
+        locale: appLanguage.speechLanguageCode,
+      );
+      if (didStart) _startFallbackElapsed();
+      if (!didStart && mounted) {
+        setState(() {});
+      }
+      return;
+    }
+
+    await _startAssessmentRecording();
+
+    if (_useNativeSpeech) {
+      _nativeSpeechService.resetSession();
+      final didStart = await _nativeSpeechService.startListening(
+        locale: appLanguage.speechLanguageCode,
+      );
+      if (didStart) _startFallbackElapsed();
+      if (!didStart && mounted) {
+        setState(() {});
+      }
       return;
     }
 
@@ -914,10 +1375,21 @@ class _RecordingScreenState extends State<_RecordingScreen> {
     if (_isSubmitting) return;
 
     setState(() => _isSubmitting = true);
-    await _speechService.stopListening();
+    if (_useNativeSpeech) {
+      await _nativeSpeechService.stopListening();
+      _stopFallbackElapsed();
+    } else if (_useCloudSpeech) {
+      await _cloudSpeechService.stopListening(
+        languageCode: appLanguage.speechLanguageCode,
+      );
+      _stopFallbackElapsed();
+    } else {
+      await _speechService.stopListening();
+    }
 
-    final transcript = _speechService.recognizedText;
-    final durationSeconds = _speechService.elapsed.inSeconds;
+    final transcript = _activeRecognizedText;
+    final durationSeconds = _activeElapsed.inSeconds;
+    final assessmentAudioBytes = await _consumeAssessmentAudioBytes();
     if (transcript.isEmpty) {
       if (mounted) {
         setState(() => _isSubmitting = false);
@@ -929,18 +1401,14 @@ class _RecordingScreenState extends State<_RecordingScreen> {
     // Attempt Azure Pronunciation Assessment (graceful fallback)
     PronunciationResult? azureResult;
     final azureService = AzurePronunciationService();
-    if (azureService.isConfigured) {
+    if (azureService.isConfigured && assessmentAudioBytes != null) {
       try {
-        // Build a minimal WAV from the reference text for assessment.
-        // In a production app, the actual recorded audio bytes would be
-        // captured via a platform audio recorder and passed here.
-        // For now we pass the reference/exercise content text.
         azureResult = await azureService.assess(
-          audioBytes: _buildPlaceholderWav(),
+          audioBytes: assessmentAudioBytes,
           referenceText: widget.content.isNotEmpty
               ? widget.content
               : transcript,
-          language: 'vi-VN',
+          language: appLanguage.speechLanguageCode,
         );
       } catch (e) {
         debugPrint('[Practice] Azure pronunciation assessment failed: $e');
@@ -967,34 +1435,49 @@ class _RecordingScreenState extends State<_RecordingScreen> {
     );
   }
 
-  /// Build a minimal silent WAV (placeholder).  In production, the actual
-  /// recorded PCM bytes from the device mic would be used instead.
-  Uint8List _buildPlaceholderWav() {
-    const dataSize = 3200; // 0.1 s of 16-bit mono @ 16 kHz
-    final header = ByteData(44);
-    // RIFF
-    header.setUint8(0, 0x52); header.setUint8(1, 0x49);
-    header.setUint8(2, 0x46); header.setUint8(3, 0x46);
-    header.setUint32(4, 36 + dataSize, Endian.little);
-    header.setUint8(8, 0x57); header.setUint8(9, 0x41);
-    header.setUint8(10, 0x56); header.setUint8(11, 0x45);
-    // fmt
-    header.setUint8(12, 0x66); header.setUint8(13, 0x6D);
-    header.setUint8(14, 0x74); header.setUint8(15, 0x20);
-    header.setUint32(16, 16, Endian.little);
-    header.setUint16(20, 1, Endian.little);
-    header.setUint16(22, 1, Endian.little);
-    header.setUint32(24, 16000, Endian.little);
-    header.setUint32(28, 32000, Endian.little);
-    header.setUint16(32, 2, Endian.little);
-    header.setUint16(34, 16, Endian.little);
-    // data
-    header.setUint8(36, 0x64); header.setUint8(37, 0x61);
-    header.setUint8(38, 0x74); header.setUint8(39, 0x61);
-    header.setUint32(40, dataSize, Endian.little);
-    final wav = Uint8List(44 + dataSize);
-    wav.setAll(0, header.buffer.asUint8List());
-    return wav;
+  Future<void> _startAssessmentRecording() async {
+    if (_useCloudSpeech) return;
+    if (await _assessmentRecorder.isRecording()) {
+      await _assessmentRecorder.stop();
+    }
+
+    final hasPermission = await _assessmentRecorder.hasPermission();
+    if (!hasPermission) return;
+
+    final dir = Directory.systemTemp;
+    _assessmentAudioPath =
+        '${dir.path}/practice_assessment_${DateTime.now().millisecondsSinceEpoch}.wav';
+    await _assessmentRecorder.start(
+      const RecordConfig(
+        encoder: AudioEncoder.wav,
+        sampleRate: 16000,
+        numChannels: 1,
+        bitRate: 256000,
+      ),
+      path: _assessmentAudioPath!,
+    );
+  }
+
+  Future<Uint8List?> _consumeAssessmentAudioBytes() async {
+    if (_useCloudSpeech) {
+      return _cloudSpeechService.lastRecordedAudioBytes;
+    }
+
+    try {
+      final path = await _assessmentRecorder.stop();
+      final targetPath = path ?? _assessmentAudioPath;
+      _assessmentAudioPath = null;
+      if (targetPath == null || targetPath.isEmpty) return null;
+      final file = File(targetPath);
+      if (!await file.exists()) return null;
+      final bytes = await file.readAsBytes();
+      await file.delete().catchError((_) => file);
+      if (bytes.length < 1000) return null;
+      return bytes;
+    } catch (_) {
+      _assessmentAudioPath = null;
+      return null;
+    }
   }
 
   Future<void> _savePracticeSession({
@@ -1055,12 +1538,55 @@ class _RecordingScreenState extends State<_RecordingScreen> {
 
   void _handleSpeechUpdate() {
     if (!mounted) return;
+    final error = _speechService.lastError;
+    if (error != null &&
+        error.isNotEmpty &&
+        !_speechService.isListening &&
+        error != _lastSpeechError) {
+      _lastSpeechError = error;
+      _showSnackBar(error);
+    }
     setState(() {});
   }
 
-  void _closeScreen() {
+  void _handleNativeSpeechUpdate() {
+    if (!mounted) return;
+    final isListening = _nativeSpeechService.isListening;
+    final error = _nativeSpeechService.lastError;
+
+    if (!isListening && _fallbackStartedAt != null) {
+      _stopFallbackElapsed();
+    }
+
+    if (error != null &&
+        error.isNotEmpty &&
+        !isListening &&
+        error != _lastSpeechError) {
+      _lastSpeechError = error;
+      _showSnackBar(error);
+    }
+
+    setState(() {});
+  }
+
+  Future<void> _closeScreen() async {
     _stopPromptAudio();
-    _speechService.cancelListening();
+    _fallbackElapsedTicker?.cancel();
+    if (_useNativeSpeech) {
+      await _nativeSpeechService.cancelListening();
+    } else if (_useCloudSpeech) {
+      await _cloudSpeechService.cancelListening();
+    } else {
+      await _speechService.cancelListening();
+    }
+    if (await _assessmentRecorder.isRecording()) {
+      final path = await _assessmentRecorder.stop();
+      if (path != null) {
+        final file = File(path);
+        await file.delete().catchError((_) => file);
+      }
+    }
+    if (!mounted) return;
     Navigator.of(context).pop();
   }
 
@@ -1082,7 +1608,7 @@ class _RecordingScreenState extends State<_RecordingScreen> {
       final ttsConfig = await _resolveVietnameseTtsConfig();
       final bytes = await _ttsService.synthesize(
         text: text,
-        languageCode: 'vi-VN',
+        languageCode: appLanguage.speechLanguageCode,
         voiceName: ttsConfig.voiceName,
         speakingRate: ttsConfig.speed,
       );
@@ -1112,11 +1638,11 @@ class _RecordingScreenState extends State<_RecordingScreen> {
   }
 
   String _localeIdForApp() {
-    // Speech-to-text is forced to Vietnamese for speaking practice.
-    return 'vi_VN';
+    return appLanguage.speechLocaleId;
   }
 
-  Future<({String voiceName, double speed})> _resolveVietnameseTtsConfig() async {
+  Future<({String voiceName, double speed})>
+  _resolveVietnameseTtsConfig() async {
     final prefs = await SharedPreferences.getInstance();
     final tone = (prefs.getString('profile_ai_voice_tone') ?? 'Balanced')
         .toLowerCase();
@@ -1126,7 +1652,13 @@ class _RecordingScreenState extends State<_RecordingScreen> {
     );
 
     String voiceName;
-    if (tone.contains('calm')) {
+    if (appLanguage.locale.languageCode != 'vi') {
+      voiceName = tone.contains('energetic')
+          ? 'en-US-Standard-D'
+          : tone.contains('calm')
+          ? 'en-US-Standard-B'
+          : 'en-US-Standard-C';
+    } else if (tone.contains('calm')) {
       voiceName = 'vi-VN-Standard-B';
     } else if (tone.contains('energetic')) {
       voiceName = 'vi-VN-Standard-D';
@@ -1164,10 +1696,6 @@ class _RecordingScreenState extends State<_RecordingScreen> {
         .length;
     if (wordCount == 0) return 0;
     return (65 + (wordCount * 2).clamp(0, 30)).toInt();
-  }
-
-  double _estimateClarity(double soundLevel) {
-    return (55 + soundLevel * 1.1).clamp(55, 99);
   }
 
   List<double> _buildWaveHeights(double soundLevel) {
@@ -1290,6 +1818,83 @@ class _RecordingMetricCard extends StatelessWidget {
               fontSize: 14,
               fontWeight: FontWeight.w800,
               color: AppColors.dashboardNavy,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _RecordingRealtimeMeterCard extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String value;
+  final double progress;
+
+  const _RecordingRealtimeMeterCard({
+    required this.icon,
+    required this.label,
+    required this.value,
+    required this.progress,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final style = GoogleFonts.plusJakartaSans();
+    final safeProgress = progress.clamp(0.0, 1.0);
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.92),
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, size: 18, color: AppColors.onboardingBlueDeep),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  label,
+                  style: style.copyWith(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 0.6,
+                    color: AppColors.dashboardTextMuted,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Text(
+            value,
+            style: style.copyWith(
+              fontSize: 18,
+              fontWeight: FontWeight.w800,
+              color: AppColors.dashboardNavy,
+            ),
+          ),
+          const SizedBox(height: 10),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(999),
+            child: LinearProgressIndicator(
+              value: safeProgress,
+              minHeight: 8,
+              backgroundColor: AppColors.dashboardTextMuted.withValues(
+                alpha: 0.16,
+              ),
+              valueColor: AlwaysStoppedAnimation<Color>(
+                safeProgress > 0.75
+                    ? AppColors.practicePurpleDeep
+                    : safeProgress > 0.4
+                    ? AppColors.onboardingBlue
+                    : AppColors.recordingDotRecording,
+              ),
             ),
           ),
         ],

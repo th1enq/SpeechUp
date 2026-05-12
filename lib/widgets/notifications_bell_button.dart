@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 
 import '../services/notification_service.dart';
@@ -24,47 +22,15 @@ class _NotificationsBellButtonState extends State<NotificationsBellButton> {
   final List<_BellNotification> _notifications = [
     _BellNotification(
       title: 'Daily practice reminder',
-      body: 'Spend a few minutes speaking today to keep your streak.',
+      body:
+          'Your speaking habit is built through short, consistent sessions. Open Practice when you have a quiet moment and complete at least 5 minutes to protect your streak.',
     ),
     _BellNotification(
       title: 'Guided speaking tip',
-      body: 'Try a short guided scenario to warm up your voice.',
+      body:
+          'Try a guided scenario before free conversation. Read the prompt slowly first, then record your answer again with a steadier pace and clearer ending sounds.',
     ),
   ];
-
-  Timer? _incomingTimer;
-
-  @override
-  void initState() {
-    super.initState();
-    // Mock "incoming" notifications while the user has not opened the list.
-    // This lets the badge increase if the user hasn't viewed notifications yet.
-    _incomingTimer = Timer.periodic(const Duration(seconds: 20), (_) {
-      if (!mounted) return;
-      if (_notifications.any((n) => !n.read)) {
-        setState(() {
-          _notifications.insert(
-            0,
-            _BellNotification(
-              title: 'New practice idea',
-              body: 'Pick a daily scenario and speak for 2 minutes.',
-            ),
-          );
-          if (_notifications.length > 15) {
-            _notifications.removeRange(15, _notifications.length);
-          }
-        });
-      } else {
-        // If everything is read, don't keep adding noise.
-      }
-    });
-  }
-
-  @override
-  void dispose() {
-    _incomingTimer?.cancel();
-    super.dispose();
-  }
 
   int get _unreadCount => _notifications.where((n) => !n.read).length;
 
@@ -81,7 +47,12 @@ class _NotificationsBellButtonState extends State<NotificationsBellButton> {
       // Even if OS notifications are not granted, still show in-app notifications.
     }
 
-    await NotificationService().scheduleDailyReminder(true);
+    final savedTime = await NotificationService().getSavedPracticeTime();
+    if (savedTime == null) {
+      await NotificationService().scheduleDailyReminder(true);
+    } else {
+      await NotificationService().scheduleAtUserTime(savedTime);
+    }
     if (!mounted) return;
 
     await showModalBottomSheet<void>(
@@ -109,17 +80,17 @@ class _NotificationsBellButtonState extends State<NotificationsBellButton> {
                     Text(
                       'Notifications',
                       style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                            fontWeight: FontWeight.w900,
-                            color: c.textHeading,
-                          ),
+                        fontWeight: FontWeight.w900,
+                        color: c.textHeading,
+                      ),
                     ),
                     if (_unreadCount > 0)
                       Text(
                         _unreadCount > 9 ? '9+' : '$_unreadCount new',
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                              fontWeight: FontWeight.w700,
-                              color: c.accentBlue,
-                            ),
+                          fontWeight: FontWeight.w700,
+                          color: c.accentBlue,
+                        ),
                       ),
                   ],
                 ),
@@ -127,16 +98,16 @@ class _NotificationsBellButtonState extends State<NotificationsBellButton> {
                 if (_notifications.isEmpty)
                   Text(
                     'No notifications yet.',
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          color: c.textMuted,
-                        ),
+                    style: Theme.of(
+                      context,
+                    ).textTheme.bodyMedium?.copyWith(color: c.textMuted),
                   )
                 else
                   SizedBox(
                     height: sheetHeight,
                     child: ListView.separated(
                       itemCount: _notifications.length,
-                      separatorBuilder: (_, __) =>
+                      separatorBuilder: (context, index) =>
                           const SizedBox(height: 8),
                       itemBuilder: (context, index) {
                         final n = _notifications[index];
@@ -159,14 +130,12 @@ class _NotificationsBellButtonState extends State<NotificationsBellButton> {
                                     ? Icons.notifications_none_rounded
                                     : Icons.notifications_active_rounded,
                                 size: 22,
-                                color:
-                                    n.read ? c.textMuted : c.accentBlue,
+                                color: n.read ? c.textMuted : c.accentBlue,
                               ),
                               const SizedBox(width: 10),
                               Expanded(
                                 child: Column(
-                                  crossAxisAlignment:
-                                      CrossAxisAlignment.start,
+                                  crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
                                     Text(
                                       n.title,
@@ -184,9 +153,7 @@ class _NotificationsBellButtonState extends State<NotificationsBellButton> {
                                       style: Theme.of(context)
                                           .textTheme
                                           .bodySmall
-                                          ?.copyWith(
-                                            color: c.textMuted,
-                                          ),
+                                          ?.copyWith(color: c.textMuted),
                                     ),
                                   ],
                                 ),
@@ -262,9 +229,5 @@ class _BellNotification {
   final String body;
   bool read = false;
 
-  _BellNotification({
-    required this.title,
-    required this.body,
-  });
+  _BellNotification({required this.title, required this.body});
 }
-

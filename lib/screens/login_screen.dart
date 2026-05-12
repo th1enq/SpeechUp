@@ -1,4 +1,3 @@
-
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/gestures.dart';
@@ -55,8 +54,9 @@ class _LoginScreenState extends State<LoginScreen> {
   String? _selectedLanguageDisplay;
   final Set<String> _selectedPurposeKeys = {};
 
-  static final RegExp _emailShapeRegex =
-      RegExp(r'^[^\s@]+@[^\s@]+\.[^\s@]{2,}$');
+  static final RegExp _emailShapeRegex = RegExp(
+    r'^[^\s@]+@[^\s@]+\.[^\s@]{2,}$',
+  );
 
   bool get _firebaseReady {
     try {
@@ -203,9 +203,7 @@ class _LoginScreenState extends State<LoginScreen> {
       );
       widget.onLoginSuccess();
     } catch (e) {
-      setState(
-        () => _errorMessage = 'Tài khoản hoặc mật khẩu không đúng',
-      );
+      setState(() => _errorMessage = 'Tài khoản hoặc mật khẩu không đúng');
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -224,12 +222,16 @@ class _LoginScreenState extends State<LoginScreen> {
       // Re-check right before creating account so duplicate-email always surfaces.
       if (_firebaseReady) {
         final emailForLookup = _emailController.text.trim().toLowerCase();
-        final methods = await _authService.fetchSignInMethodsForEmail(emailForLookup);
+        final methods = await _authService.fetchSignInMethodsForEmail(
+          emailForLookup,
+        );
         if (!mounted) return;
 
         String? blocked = _emailGateMessageAfterLookup(methods);
         if (blocked == null && methods.isEmpty) {
-          final exists = await _firestoreService.isEmailRegistered(emailForLookup);
+          final exists = await _firestoreService.isEmailRegistered(
+            emailForLookup,
+          );
           if (!mounted) return;
           if (exists) blocked = appLanguage.t('signup.emailAlreadyRegistered');
         }
@@ -265,7 +267,8 @@ class _LoginScreenState extends State<LoginScreen> {
       widget.onLoginSuccess();
     } catch (e) {
       final raw = e.toString().toLowerCase();
-      final duplicate = raw.contains('email-already-in-use') ||
+      final duplicate =
+          raw.contains('email-already-in-use') ||
           raw.contains('email này đã được sử dụng') ||
           raw.contains('already in use');
       setState(() {
@@ -305,7 +308,10 @@ class _LoginScreenState extends State<LoginScreen> {
     await prefs.setBool(_firstLoginSetupPendingKey(uid), value);
   }
 
-  Future<void> _runFirstLoginSetupIfNeeded(User user, {bool force = false}) async {
+  Future<void> _runFirstLoginSetupIfNeeded(
+    User user, {
+    bool force = false,
+  }) async {
     final savedFlag = await _getFirstLoginSetupCompleted(user.uid);
     final pendingFlag = await _getFirstLoginSetupPending(user.uid);
 
@@ -338,11 +344,18 @@ class _LoginScreenState extends State<LoginScreen> {
     final profile = await _firestoreService.getUserProfile(user.uid);
 
     final displayNameController = TextEditingController(
-      text: (profile?.displayName ?? user.displayName ?? user.email?.split('@').first ?? '')
-          .trim(),
+      text:
+          (profile?.displayName ??
+                  user.displayName ??
+                  user.email?.split('@').first ??
+                  '')
+              .trim(),
     );
-    var language = profile?.language ?? _selectedLanguageDisplay ?? 'English (US)';
-    final selectedGoals = Set<String>.from(profile?.practiceGoals ?? const <String>[]);
+    var language =
+        profile?.language ?? _selectedLanguageDisplay ?? 'English (US)';
+    final selectedGoals = Set<String>.from(
+      profile?.practiceGoals ?? const <String>[],
+    );
     String? localError;
     var saving = false;
 
@@ -393,8 +406,11 @@ class _LoginScreenState extends State<LoginScreen> {
                         subtitle: 'English (US)',
                         emoji: '🇺🇸',
                         selected: language == 'English (US)',
-                        isDark: Theme.of(sheetContext).brightness == Brightness.dark,
-                        onTap: () => setModalState(() => language = 'English (US)'),
+                        isDark:
+                            Theme.of(sheetContext).brightness ==
+                            Brightness.dark,
+                        onTap: () =>
+                            setModalState(() => language = 'English (US)'),
                       ),
                       const SizedBox(height: 10),
                       _LanguagePickCard(
@@ -402,8 +418,11 @@ class _LoginScreenState extends State<LoginScreen> {
                         subtitle: 'Tiếng Việt',
                         emoji: '🇻🇳',
                         selected: language == 'Tiếng Việt',
-                        isDark: Theme.of(sheetContext).brightness == Brightness.dark,
-                        onTap: () => setModalState(() => language = 'Tiếng Việt'),
+                        isDark:
+                            Theme.of(sheetContext).brightness ==
+                            Brightness.dark,
+                        onTap: () =>
+                            setModalState(() => language = 'Tiếng Việt'),
                       ),
                       const SizedBox(height: 16),
                       Text(
@@ -420,7 +439,9 @@ class _LoginScreenState extends State<LoginScreen> {
                           title: t('signup.purpose.$key'),
                           icon: _purposeIcon(key),
                           selected: selectedGoals.contains(key),
-                          isDark: Theme.of(sheetContext).brightness == Brightness.dark,
+                          isDark:
+                              Theme.of(sheetContext).brightness ==
+                              Brightness.dark,
                           onTap: () {
                             setModalState(() {
                               if (selectedGoals.contains(key)) {
@@ -458,7 +479,9 @@ class _LoginScreenState extends State<LoginScreen> {
                                 }
                                 if (selectedGoals.isEmpty) {
                                   setModalState(
-                                    () => localError = t('signup.valPickPurposes'),
+                                    () => localError = t(
+                                      'signup.valPickPurposes',
+                                    ),
                                   );
                                   return;
                                 }
@@ -469,22 +492,28 @@ class _LoginScreenState extends State<LoginScreen> {
                                 try {
                                   await user.updateDisplayName(name);
                                   final goals = selectedGoals.toList()..sort();
-                                  await _firestoreService.updateUserProfile(
-                                    user.uid,
-                                    {
-                                      'displayName': name,
-                                      'language': language,
-                                      'practiceGoals': goals,
-                                    },
-                                  );
+                                  await _firestoreService
+                                      .updateUserProfile(user.uid, {
+                                        'displayName': name,
+                                        'language': language,
+                                        'practiceGoals': goals,
+                                      });
                                   appLanguage.setByDisplayName(language);
-                                  await _setFirstLoginSetupCompleted(user.uid, true);
-                                  await _setFirstLoginSetupPending(user.uid, false);
+                                  await _setFirstLoginSetupCompleted(
+                                    user.uid,
+                                    true,
+                                  );
+                                  await _setFirstLoginSetupPending(
+                                    user.uid,
+                                    false,
+                                  );
                                   if (sheetContext.mounted) {
                                     Navigator.of(sheetContext).pop();
                                   }
                                 } catch (e) {
-                                  setModalState(() => localError = e.toString());
+                                  setModalState(
+                                    () => localError = e.toString(),
+                                  );
                                 } finally {
                                   if (sheetContext.mounted) {
                                     setModalState(() => saving = false);
@@ -603,11 +632,18 @@ class _LoginScreenState extends State<LoginScreen> {
                       ),
                     ),
                     Padding(
-                      padding: EdgeInsets.fromLTRB(compact ? 18 : 24, 0, compact ? 18 : 24, 0),
+                      padding: EdgeInsets.fromLTRB(
+                        compact ? 18 : 24,
+                        0,
+                        compact ? 18 : 24,
+                        0,
+                      ),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
-                          Center(child: _LogoHelloRow(textColor: c.textHeading)),
+                          Center(
+                            child: _LogoHelloRow(textColor: c.textHeading),
+                          ),
                           SizedBox(height: compact ? 20 : 28),
                           Text(
                             _titleForStep(),
@@ -626,64 +662,72 @@ class _LoginScreenState extends State<LoginScreen> {
                     ),
                     SizedBox(height: compact ? 18 : 28),
                     Padding(
-                      padding: EdgeInsets.fromLTRB(compact ? 18 : 24, 0, compact ? 18 : 24, 0),
+                      padding: EdgeInsets.fromLTRB(
+                        compact ? 18 : 24,
+                        0,
+                        compact ? 18 : 24,
+                        0,
+                      ),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                  const SizedBox(height: 8),
-                  _PrimaryBlueButton(
-                    label: _primaryLabel(),
-                    loading: _isLoading,
-                    onPressed: _onPrimaryButton,
-                  ),
-                    const SizedBox(height: 16),
-                    Center(
-                      child: TextButton(
-                        onPressed: () => _showForgotPassword(context),
-                        style: TextButton.styleFrom(
-                          foregroundColor: c.textMuted,
-                        ),
-                        child: Text(
-                          t('login.forgotPassword'),
-                          style: base.copyWith(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w600,
-                            decoration: TextDecoration.underline,
-                            decorationColor: c.textMuted,
+                          const SizedBox(height: 8),
+                          _PrimaryBlueButton(
+                            label: _primaryLabel(),
+                            loading: _isLoading,
+                            onPressed: _onPrimaryButton,
                           ),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 20),
-                    _OrDivider(label: t('login.or'), mutedColor: c.textMuted),
-                    const SizedBox(height: 22),
-                    _GoogleSignInButton(
-                      label: t('login.google'),
-                      loading: _googleLoading,
-                      isDark: isDark,
-                      onPressed: _signInWithGoogle,
-                    ),
-                    if (!_isLogin) ...[
-                      const SizedBox(height: 28),
-                      _LoginTermsRichText(textMuted: c.textMuted),
-                      const SizedBox(height: 20),
-                    ] else
-                      const SizedBox(height: 24),
-                    _AuthModeFooter(
-                      isLogin: _isLogin,
-                      onToggle: () {
-                        setState(() {
-                          _isLogin = !_isLogin;
-                          _clearFieldErrors();
-                          _passwordController.clear();
-                          _nameController.clear();
-                          _selectedLanguageDisplay = null;
-                          _selectedPurposeKeys.clear();
-                          _credentialFormKey.currentState?.reset();
-                        });
-                      },
-                    ),
+                          const SizedBox(height: 16),
+                          Center(
+                            child: TextButton(
+                              onPressed: () => _showForgotPassword(context),
+                              style: TextButton.styleFrom(
+                                foregroundColor: c.textMuted,
+                              ),
+                              child: Text(
+                                t('login.forgotPassword'),
+                                style: base.copyWith(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w600,
+                                  decoration: TextDecoration.underline,
+                                  decorationColor: c.textMuted,
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 20),
+                          _OrDivider(
+                            label: t('login.or'),
+                            mutedColor: c.textMuted,
+                          ),
+                          const SizedBox(height: 22),
+                          _GoogleSignInButton(
+                            label: t('login.google'),
+                            loading: _googleLoading,
+                            isDark: isDark,
+                            onPressed: _signInWithGoogle,
+                          ),
+                          if (!_isLogin) ...[
+                            const SizedBox(height: 28),
+                            _LoginTermsRichText(textMuted: c.textMuted),
+                            const SizedBox(height: 20),
+                          ] else
+                            const SizedBox(height: 24),
+                          _AuthModeFooter(
+                            isLogin: _isLogin,
+                            onToggle: () {
+                              setState(() {
+                                _isLogin = !_isLogin;
+                                _clearFieldErrors();
+                                _passwordController.clear();
+                                _nameController.clear();
+                                _selectedLanguageDisplay = null;
+                                _selectedPurposeKeys.clear();
+                                _credentialFormKey.currentState?.reset();
+                              });
+                            },
+                          ),
                         ],
                       ),
                     ),
@@ -810,24 +854,25 @@ class _LoginScreenState extends State<LoginScreen> {
           fontWeight: FontWeight.w600,
           color: c.textHeading,
         ),
-        decoration: _filledDecoration(
-          context,
-          hint: t('signup.passwordHint'),
-          fill: _fieldFill(context),
-          errorText: _passwordError,
-        ).copyWith(
-          suffixIcon: IconButton(
-            icon: Icon(
-              _obscurePassword
-                  ? Icons.visibility_off_outlined
-                  : Icons.visibility_outlined,
-              color: c.textMuted,
-              size: 22,
+        decoration:
+            _filledDecoration(
+              context,
+              hint: t('signup.passwordHint'),
+              fill: _fieldFill(context),
+              errorText: _passwordError,
+            ).copyWith(
+              suffixIcon: IconButton(
+                icon: Icon(
+                  _obscurePassword
+                      ? Icons.visibility_off_outlined
+                      : Icons.visibility_outlined,
+                  color: c.textMuted,
+                  size: 22,
+                ),
+                onPressed: () =>
+                    setState(() => _obscurePassword = !_obscurePassword),
+              ),
             ),
-            onPressed: () =>
-                setState(() => _obscurePassword = !_obscurePassword),
-          ),
-        ),
         onChanged: (_) {
           if (_passwordError != null) setState(() => _passwordError = null);
         },
@@ -868,9 +913,7 @@ class _LoginScreenState extends State<LoginScreen> {
           decoration: BoxDecoration(
             color: AppColors.error.withValues(alpha: 0.08),
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(
-              color: AppColors.error.withValues(alpha: 0.25),
-            ),
+            border: Border.all(color: AppColors.error.withValues(alpha: 0.25)),
           ),
           child: Row(
             children: [
@@ -951,7 +994,10 @@ class _LoginScreenState extends State<LoginScreen> {
       enabledBorder: OutlineInputBorder(
         borderRadius: radius,
         borderSide: hasError
-            ? BorderSide(color: AppColors.error.withValues(alpha: 0.6), width: 1.5)
+            ? BorderSide(
+                color: AppColors.error.withValues(alpha: 0.6),
+                width: 1.5,
+              )
             : BorderSide.none,
       ),
       focusedBorder: OutlineInputBorder(
@@ -963,7 +1009,10 @@ class _LoginScreenState extends State<LoginScreen> {
       ),
       errorBorder: OutlineInputBorder(
         borderRadius: radius,
-        borderSide: BorderSide(color: AppColors.error.withValues(alpha: 0.6), width: 1.5),
+        borderSide: BorderSide(
+          color: AppColors.error.withValues(alpha: 0.6),
+          width: 1.5,
+        ),
       ),
       focusedErrorBorder: OutlineInputBorder(
         borderRadius: radius,
@@ -974,7 +1023,9 @@ class _LoginScreenState extends State<LoginScreen> {
 
   void _showForgotPassword(BuildContext context) {
     final base = GoogleFonts.plusJakartaSans();
-    final resetEmailController = TextEditingController(text: _emailController.text);
+    final resetEmailController = TextEditingController(
+      text: _emailController.text,
+    );
     final c = context.colors;
     final sheetDark = Theme.of(context).brightness == Brightness.dark;
 
@@ -989,7 +1040,12 @@ class _LoginScreenState extends State<LoginScreen> {
             color: sheetDark ? c.surfaceBg : Colors.white,
             borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
           ),
-          padding: EdgeInsets.fromLTRB(24, 12, 24, 24 + MediaQuery.paddingOf(ctx).bottom),
+          padding: EdgeInsets.fromLTRB(
+            24,
+            12,
+            24,
+            24 + MediaQuery.paddingOf(ctx).bottom,
+          ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -1085,7 +1141,10 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
                   child: Text(
                     appLanguage.t('login.resetSubmit'),
-                    style: base.copyWith(fontSize: 16, fontWeight: FontWeight.w700),
+                    style: base.copyWith(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
                 ),
               ),
@@ -1231,9 +1290,7 @@ class _PurposePickCard extends StatelessWidget {
                 ),
               ),
               Icon(
-                selected
-                    ? Icons.check_circle_rounded
-                    : Icons.circle_outlined,
+                selected ? Icons.check_circle_rounded : Icons.circle_outlined,
                 size: 24,
                 color: selected
                     ? AppColors.onboardingBlue
@@ -1476,8 +1533,36 @@ class _LoginTermsRichTextState extends State<_LoginTermsRichText> {
   @override
   void initState() {
     super.initState();
-    _termsTap = TapGestureRecognizer()..onTap = () {};
-    _privacyTap = TapGestureRecognizer()..onTap = () {};
+    _termsTap = TapGestureRecognizer()
+      ..onTap = () => _showPolicyDialog(
+        'Terms of Service',
+        'Use SpeechUp for lawful learning and practice. Your account activity may be used to save progress, personalize lessons, and keep the app reliable.',
+      );
+    _privacyTap = TapGestureRecognizer()
+      ..onTap = () => _showPolicyDialog(
+        'Privacy Policy',
+        'SpeechUp stores profile settings, practice progress, and conversation history when you are signed in. You can sign out any time from Profile.',
+      );
+  }
+
+  Future<void> _showPolicyDialog(String title, String body) {
+    return showDialog<void>(
+      context: context,
+      builder: (context) {
+        final c = context.colors;
+        return AlertDialog(
+          backgroundColor: c.cardBg,
+          title: Text(title),
+          content: Text(body),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: Text(appLanguage.t('common.close')),
+            ),
+          ],
+        );
+      },
+    );
   }
 
   @override
@@ -1510,7 +1595,11 @@ class _LoginTermsRichTextState extends State<_LoginTermsRichText> {
         style: base,
         children: [
           TextSpan(text: t('login.termsJoin')),
-          TextSpan(text: t('login.termsLink'), style: link, recognizer: _termsTap),
+          TextSpan(
+            text: t('login.termsLink'),
+            style: link,
+            recognizer: _termsTap,
+          ),
           TextSpan(text: t('login.termsAnd')),
           TextSpan(
             text: t('login.privacyLink'),
@@ -1529,10 +1618,7 @@ class _AuthModeFooter extends StatelessWidget {
   final bool isLogin;
   final VoidCallback onToggle;
 
-  const _AuthModeFooter({
-    required this.isLogin,
-    required this.onToggle,
-  });
+  const _AuthModeFooter({required this.isLogin, required this.onToggle});
 
   @override
   Widget build(BuildContext context) {

@@ -9,9 +9,12 @@ class UserProfile {
   final double totalSpeakingMinutes;
   final int averageScore;
   final int streakDays;
+  final DateTime? lastQualifiedPracticeDate;
+  final DateTime? lastPracticeAt;
   final String language;
   final String difficulty;
   final bool notificationsEnabled;
+
   /// Sign-up goal keys from onboarding (multi-select), e.g. clarity, fluency.
   final List<String> practiceGoals;
 
@@ -24,6 +27,8 @@ class UserProfile {
     this.totalSpeakingMinutes = 0,
     this.averageScore = 0,
     this.streakDays = 0,
+    this.lastQualifiedPracticeDate,
+    this.lastPracticeAt,
     this.language = 'English (US)',
     this.difficulty = 'Intermediate',
     this.notificationsEnabled = true,
@@ -57,6 +62,9 @@ class UserProfile {
       totalSpeakingMinutes: (data['totalSpeakingMinutes'] ?? 0).toDouble(),
       averageScore: data['averageScore'] ?? 0,
       streakDays: data['streakDays'] ?? 0,
+      lastQualifiedPracticeDate:
+          (data['lastQualifiedPracticeDate'] as Timestamp?)?.toDate(),
+      lastPracticeAt: (data['lastPracticeAt'] as Timestamp?)?.toDate(),
       language: data['language'] ?? 'English (US)',
       difficulty: data['difficulty'] ?? 'Intermediate',
       notificationsEnabled: data['notificationsEnabled'] ?? true,
@@ -73,6 +81,12 @@ class UserProfile {
       'totalSpeakingMinutes': totalSpeakingMinutes,
       'averageScore': averageScore,
       'streakDays': streakDays,
+      'lastQualifiedPracticeDate': lastQualifiedPracticeDate == null
+          ? null
+          : Timestamp.fromDate(lastQualifiedPracticeDate!),
+      'lastPracticeAt': lastPracticeAt == null
+          ? null
+          : Timestamp.fromDate(lastPracticeAt!),
       'language': language,
       'difficulty': difficulty,
       'notificationsEnabled': notificationsEnabled,
@@ -87,6 +101,8 @@ class UserProfile {
     double? totalSpeakingMinutes,
     int? averageScore,
     int? streakDays,
+    DateTime? lastQualifiedPracticeDate,
+    DateTime? lastPracticeAt,
     String? language,
     String? difficulty,
     bool? notificationsEnabled,
@@ -101,6 +117,9 @@ class UserProfile {
       totalSpeakingMinutes: totalSpeakingMinutes ?? this.totalSpeakingMinutes,
       averageScore: averageScore ?? this.averageScore,
       streakDays: streakDays ?? this.streakDays,
+      lastQualifiedPracticeDate:
+          lastQualifiedPracticeDate ?? this.lastQualifiedPracticeDate,
+      lastPracticeAt: lastPracticeAt ?? this.lastPracticeAt,
       language: language ?? this.language,
       difficulty: difficulty ?? this.difficulty,
       notificationsEnabled: notificationsEnabled ?? this.notificationsEnabled,

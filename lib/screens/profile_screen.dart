@@ -14,6 +14,7 @@ import '../services/auth_service.dart';
 import '../services/firestore_service.dart';
 import '../services/notification_service.dart';
 import '../models/user_profile.dart';
+import '../widgets/screen_header.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -78,13 +79,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
     if (mounted) {
       setState(() {
-        _selectedLanguage = savedLanguage ?? appLanguage.currentLanguageDisplayName;
+        _selectedLanguage =
+            savedLanguage ?? appLanguage.currentLanguageDisplayName;
         _selectedDifficulty = savedDifficulty ?? _selectedDifficulty;
         _notificationsOn = savedNotifications ?? _notificationsOn;
         _customDisplayName = savedDisplayName ?? _customDisplayName;
         _avatarIndex =
-            ((savedAvatarIndex ?? 0) % _avatarOptions.length + _avatarOptions.length) %
-                _avatarOptions.length;
+            ((savedAvatarIndex ?? 0) % _avatarOptions.length +
+                _avatarOptions.length) %
+            _avatarOptions.length;
         _aiVoiceTone = savedAiVoiceTone ?? _aiVoiceTone;
         _aiVoiceSpeed = savedAiVoiceSpeed ?? _aiVoiceSpeed;
       });
@@ -132,7 +135,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
       await prefs.setString('profile_difficulty', difficulty);
     }
     if (notificationsEnabled != null) {
-      await prefs.setBool('profile_notifications_enabled', notificationsEnabled);
+      await prefs.setBool(
+        'profile_notifications_enabled',
+        notificationsEnabled,
+      );
     }
 
     if (isFirebaseSupported) {
@@ -186,7 +192,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
       if (!granted) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Notification permissions are required.')),
+            const SnackBar(
+              content: Text('Notification permissions are required.'),
+            ),
           );
         }
         return;
@@ -274,8 +282,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     borderRadius: BorderRadius.circular(999),
                     child: CircleAvatar(
                       radius: 28,
-                      backgroundColor:
-                          _avatarOptions[i].color.withValues(alpha: 0.15),
+                      backgroundColor: _avatarOptions[i].color.withValues(
+                        alpha: 0.15,
+                      ),
                       child: Icon(
                         _avatarOptions[i].icon,
                         color: _avatarOptions[i].color,
@@ -559,7 +568,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         if (!isFirebaseSupported) {
                           if (mounted) {
                             ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(content: Text(t('profile.firebaseOnlyLogout'))),
+                              SnackBar(
+                                content: Text(t('profile.firebaseOnlyLogout')),
+                              ),
                             );
                           }
                           return;
@@ -593,7 +604,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   String _displayName() {
     return _profile?.displayName ??
-        (isFirebaseSupported ? FirebaseAuth.instance.currentUser?.displayName : null) ??
+        (isFirebaseSupported
+            ? FirebaseAuth.instance.currentUser?.displayName
+            : null) ??
         'User';
   }
 
@@ -620,11 +633,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final c = context.colors;
     final themeNotifier = context.watch<ThemeNotifier>();
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final compact = MediaQuery.sizeOf(context).width < 370;
     final bottomContentPadding =
         kBottomNavigationBarHeight + MediaQuery.paddingOf(context).bottom + 20;
 
-    final email = isFirebaseSupported ? FirebaseAuth.instance.currentUser?.email : null;
+    final email = isFirebaseSupported
+        ? FirebaseAuth.instance.currentUser?.email
+        : null;
     final avatar = _avatarOptions[_avatarIndex];
 
     return Scaffold(
@@ -633,29 +647,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
         bottom: false,
         child: SingleChildScrollView(
           physics: const BouncingScrollPhysics(),
-          padding: EdgeInsets.fromLTRB(
-            20,
-            8,
-            20,
-            bottomContentPadding,
-          ),
+          padding: EdgeInsets.fromLTRB(20, 8, 20, bottomContentPadding),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      t('profile.screenTitle'),
-                      style: base.copyWith(
-                        fontSize: compact ? 22 : 26,
-                        fontWeight: FontWeight.w900,
-                        letterSpacing: -0.4,
-                        color: c.textHeading,
-                      ),
-                    ),
-                  ),
-                ],
+              ScreenHeader(
+                title: t('profile.screenTitle'),
+                subtitle: email ?? t('profile.learnerSubtitle'),
               ),
               const SizedBox(height: 14),
               Container(
@@ -663,7 +661,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 decoration: BoxDecoration(
                   color: c.cardBg,
                   borderRadius: BorderRadius.circular(26),
-                  border: Border.all(color: c.borderColor.withValues(alpha: 0.7)),
+                  border: Border.all(
+                    color: c.borderColor.withValues(alpha: 0.7),
+                  ),
                   boxShadow: [
                     BoxShadow(
                       color: c.shadowColor.withValues(alpha: 0.10),
@@ -759,7 +759,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 decoration: BoxDecoration(
                   color: c.cardBg,
                   borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: c.borderColor.withValues(alpha: 0.7)),
+                  border: Border.all(
+                    color: c.borderColor.withValues(alpha: 0.7),
+                  ),
                 ),
                 child: Column(
                   children: [
@@ -845,7 +847,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     if (!isFirebaseSupported) {
                       if (mounted) {
                         ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text(t('profile.firebaseOnlyLogout'))),
+                          SnackBar(
+                            content: Text(t('profile.firebaseOnlyLogout')),
+                          ),
                         );
                       }
                       return;
@@ -885,9 +889,7 @@ class _DifficultyChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final base = GoogleFonts.plusJakartaSans();
-    final bg = isDark
-        ? const Color(0xFF1A2744)
-        : const Color(0xFFE8F2FF);
+    final bg = isDark ? const Color(0xFF1A2744) : const Color(0xFFE8F2FF);
     final fg = isDark ? Colors.white : const Color(0xFF1B2F4B);
 
     return Container(
@@ -895,7 +897,9 @@ class _DifficultyChip extends StatelessWidget {
       decoration: BoxDecoration(
         color: bg,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppColors.onboardingBlue.withValues(alpha: 0.35)),
+        border: Border.all(
+          color: AppColors.onboardingBlue.withValues(alpha: 0.35),
+        ),
       ),
       child: Text(
         label,
@@ -955,8 +959,9 @@ class _ProfileSegmentedTabs extends StatelessWidget {
                         labels[i],
                         style: base.copyWith(
                           fontSize: 15,
-                          fontWeight:
-                              selectedIndex == i ? FontWeight.w800 : FontWeight.w600,
+                          fontWeight: selectedIndex == i
+                              ? FontWeight.w800
+                              : FontWeight.w600,
                           color: selectedIndex == i
                               ? AppColors.onboardingBlue
                               : c.textMuted,
@@ -1081,10 +1086,7 @@ class _RingPainter extends CustomPainter {
       ..shader = SweepGradient(
         startAngle: -math.pi / 2,
         endAngle: 3 * math.pi / 2,
-        colors: const [
-          AppColors.onboardingBlue,
-          Color(0xFF5AB0FF),
-        ],
+        colors: const [AppColors.onboardingBlue, Color(0xFF5AB0FF)],
       ).createShader(Rect.fromCircle(center: center, radius: radius))
       ..style = PaintingStyle.stroke
       ..strokeWidth = strokeWidth
@@ -1103,8 +1105,7 @@ class _RingPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _RingPainter oldDelegate) =>
-      oldDelegate.progress != progress ||
-      oldDelegate.trackColor != trackColor;
+      oldDelegate.progress != progress || oldDelegate.trackColor != trackColor;
 }
 
 class _CompactStatTile extends StatelessWidget {
@@ -1213,8 +1214,9 @@ class _DayDot extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final inactiveBg =
-        isDark ? const Color(0xFF2C2C2E) : const Color(0xFFE8E8ED);
+    final inactiveBg = isDark
+        ? const Color(0xFF2C2C2E)
+        : const Color(0xFFE8E8ED);
 
     return Column(
       children: [
@@ -1322,10 +1324,7 @@ class _SettingsRow extends StatelessWidget {
           Container(
             width: 44,
             height: 44,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: iconBg,
-            ),
+            decoration: BoxDecoration(shape: BoxShape.circle, color: iconBg),
             child: Icon(icon, color: iconColor, size: 22),
           ),
           const SizedBox(width: 14),

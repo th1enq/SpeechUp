@@ -11,8 +11,7 @@ import 'package:record/record.dart';
 /// Android's SpeechRecognizer service is unavailable), then sends
 /// the recording to Google Cloud for transcription.
 class CloudSpeechService extends ChangeNotifier {
-  static const String _apiKey =
-      String.fromEnvironment('GOOGLE_TTS_API_KEY');
+  static const String _apiKey = String.fromEnvironment('GOOGLE_TTS_API_KEY');
 
   static final Uri _endpoint = Uri.parse(
     'https://speech.googleapis.com/v1/speech:recognize',
@@ -25,6 +24,7 @@ class CloudSpeechService extends ChangeNotifier {
   String _recognizedText = '';
   String? _lastError;
   String? _tempFilePath;
+  Uint8List? _lastRecordedAudioBytes;
 
   bool get isConfigured => _apiKey.isNotEmpty;
   bool get isRecording => _isRecording;
@@ -32,6 +32,7 @@ class CloudSpeechService extends ChangeNotifier {
   bool get isListening => _isRecording || _isProcessing;
   String get recognizedText => _recognizedText;
   String? get lastError => _lastError;
+  Uint8List? get lastRecordedAudioBytes => _lastRecordedAudioBytes;
   String get errorSummary => _lastError ?? 'Unknown error';
 
   bool get isSupportedPlatform {
@@ -49,6 +50,7 @@ class CloudSpeechService extends ChangeNotifier {
   Future<bool> startListening({String locale = 'vi-VN'}) async {
     _lastError = null;
     _recognizedText = '';
+    _lastRecordedAudioBytes = null;
 
     if (!isConfigured) {
       _lastError = 'Google API key not configured';
@@ -126,6 +128,7 @@ class CloudSpeechService extends ChangeNotifier {
       }
 
       final audioBytes = await audioFile.readAsBytes();
+      _lastRecordedAudioBytes = Uint8List.fromList(audioBytes);
       debugPrint('[CloudSpeech] Audio size: ${audioBytes.length} bytes');
 
       if (audioBytes.length < 1000) {
@@ -166,6 +169,7 @@ class CloudSpeechService extends ChangeNotifier {
     _isRecording = false;
     _isProcessing = false;
     _recognizedText = '';
+    _lastRecordedAudioBytes = null;
     notifyListeners();
   }
 
@@ -177,9 +181,7 @@ class CloudSpeechService extends ChangeNotifier {
 
   /// Send audio to Google Cloud Speech-to-Text API.
   Future<String> _transcribe(Uint8List audioBytes, String languageCode) async {
-    final uri = _endpoint.replace(
-      queryParameters: {'key': _apiKey},
-    );
+    final uri = _endpoint.replace(queryParameters: {'key': _apiKey});
 
     final body = {
       'config': {
@@ -189,9 +191,7 @@ class CloudSpeechService extends ChangeNotifier {
         'enableAutomaticPunctuation': true,
         'model': 'default',
       },
-      'audio': {
-        'content': base64Encode(audioBytes),
-      },
+      'audio': {'content': base64Encode(audioBytes)},
     };
 
     debugPrint('[CloudSpeech] Sending ${audioBytes.length} bytes to API...');
@@ -203,9 +203,12 @@ class CloudSpeechService extends ChangeNotifier {
     );
 
     if (response.statusCode != 200) {
-      debugPrint('[CloudSpeech] API error ${response.statusCode}: ${response.body}');
+      debugPrint(
+        '[CloudSpeech] API error ${response.statusCode}: ${response.body}',
+      );
       throw Exception(
-          'Speech API error (${response.statusCode}): ${response.body}');
+        'Speech API error (${response.statusCode}): ${response.body}',
+      );
     }
 
     final json = jsonDecode(response.body) as Map<String, dynamic>;
@@ -225,7 +228,8 @@ class CloudSpeechService extends ChangeNotifier {
     final transcript = alternatives.first['transcript'] as String? ?? '';
     final confidence = alternatives.first['confidence'] as double? ?? 0;
     debugPrint(
-        '[CloudSpeech] Transcript: "$transcript" (confidence: $confidence)');
+      '[CloudSpeech] Transcript: "$transcript" (confidence: $confidence)',
+    );
 
     return transcript;
   }

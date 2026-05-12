@@ -26,6 +26,8 @@ class AppLanguage extends ChangeNotifier {
       'nav.chat': 'Chat',
       'nav.progress': 'Progress',
       'nav.profile': 'Profile',
+      'chat.title': 'AI Conversation',
+      'chat.subtitle': 'Choose a scenario to start practicing.',
       'onboarding.skip': 'Skip',
       'onboarding.welcomeHeadline':
           'Practice speaking every day in just a few minutes.',
@@ -86,8 +88,7 @@ class AppLanguage extends ChangeNotifier {
       'signup.purpose.habit': 'Build a daily speaking habit',
       'signup.valPasswordStrong':
           'Use at least 8 characters with 1 uppercase letter and 1 number.',
-      'signup.valUsername':
-          '3–20 characters: letters, numbers, _ and - only.',
+      'signup.valUsername': '3–20 characters: letters, numbers, _ and - only.',
       'signup.valPickLanguage': 'Please choose a language.',
       'signup.valPickPurpose': 'Please choose a goal.',
       'signup.valPickPurposes': 'Choose at least one goal.',
@@ -255,6 +256,12 @@ class AppLanguage extends ChangeNotifier {
       'common.cancel': 'Hủy',
       'common.close': 'Đóng',
       'nav.home': 'Trang chủ',
+      'nav.practice': 'Luyện tập',
+      'nav.chat': 'Chat',
+      'nav.progress': 'Tiến độ',
+      'nav.profile': 'Hồ sơ',
+      'chat.title': 'Hội thoại với AI',
+      'chat.subtitle': 'Chọn tình huống để bắt đầu luyện tập.',
       'onboarding.alreadyHaveAccount': 'Đã có tài khoản?',
       'onboarding.logIn': 'Đăng nhập',
       'login.hello': 'Xin chào!',
@@ -266,8 +273,7 @@ class AppLanguage extends ChangeNotifier {
       'login.continue': 'Tiếp tục',
       'login.or': 'hoặc',
       'login.google': 'Tiếp tục với Google',
-      'login.termsJoin':
-          'Khi tham gia, tôi xác nhận đã đọc và đồng ý ',
+      'login.termsJoin': 'Khi tham gia, tôi xác nhận đã đọc và đồng ý ',
       'login.termsLink': 'Điều khoản',
       'login.termsAnd': ' và ',
       'login.privacyLink': 'Chính sách quyền riêng tư',
@@ -311,8 +317,7 @@ class AppLanguage extends ChangeNotifier {
       'signup.purpose.habit': 'Duy trì thói quen luyện nói mỗi ngày',
       'signup.valPasswordStrong':
           'Cần ít nhất 8 ký tự, gồm 1 chữ hoa và 1 chữ số.',
-      'signup.valUsername':
-          '3–20 ký tự: chỉ chữ, số, _ và -.',
+      'signup.valUsername': '3–20 ký tự: chỉ chữ, số, _ và -.',
       'signup.valPickLanguage': 'Vui lòng chọn ngôn ngữ.',
       'signup.valPickPurpose': 'Vui lòng chọn mục tiêu.',
       'signup.valPickPurposes': 'Chọn ít nhất một mục tiêu.',
@@ -445,8 +450,7 @@ class AppLanguage extends ChangeNotifier {
       'profile.highlightSessions': '{n} buổi',
       'profile.highlightStreak': '{n} ngày liên tiếp',
       'profile.highlightScore': '{n} điểm TB',
-      'profile.exercisesTabBody':
-          'Mở Luyện tập để làm bài và giữ chuỗi ngày.',
+      'profile.exercisesTabBody': 'Mở Luyện tập để làm bài và giữ chuỗi ngày.',
       'profile.insightsTabBody':
           'Phản hồi phát âm và độ trôi chảy cập nhật khi bạn ghi âm.',
       'profile.learnerSubtitle': 'Người học SpeechUp',
@@ -477,6 +481,22 @@ class AppLanguage extends ChangeNotifier {
 
   String get currentLanguageDisplayName =>
       localeToDisplayName(_locale) ?? 'English (US)';
+
+  String get speechLocaleId => _locale.languageCode == 'vi' ? 'vi_VN' : 'en_US';
+
+  String get speechLanguageCode =>
+      _locale.languageCode == 'vi' ? 'vi-VN' : 'en-US';
+
+  String get practiceLanguageName =>
+      _locale.languageCode == 'vi' ? 'tiếng Việt' : 'English';
+
+  List<String> get weekdayShortLabels => _locale.languageCode == 'vi'
+      ? const ['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN']
+      : const ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+
+  List<String> get weekdayNarrowLabels => _locale.languageCode == 'vi'
+      ? const ['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN']
+      : const ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
 
   void setLocale(Locale locale) {
     if (_locale == locale) return;
