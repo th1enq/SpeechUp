@@ -30,6 +30,37 @@ class PracticeScreen extends StatefulWidget {
 
 class _PracticeScreenState extends State<PracticeScreen> {
   TextStyle get _display => GoogleFonts.plusJakartaSans();
+  final TextEditingController _searchController = TextEditingController();
+  _PracticeDifficulty? _selectedFilter;
+  String _query = '';
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  List<_PracticePromptOption> _allPracticeItems() {
+    return [
+      ..._optionsForLevel(_PracticeDifficulty.easy),
+      ..._optionsForLevel(_PracticeDifficulty.medium),
+      ..._optionsForLevel(_PracticeDifficulty.hard),
+    ];
+  }
+
+  List<_PracticePromptOption> _filteredPracticeItems() {
+    final normalizedQuery = _query.trim().toLowerCase();
+    return _allPracticeItems().where((item) {
+      final matchesLevel =
+          _selectedFilter == null || item.level == _selectedFilter;
+      final matchesQuery =
+          normalizedQuery.isEmpty ||
+          item.title.toLowerCase().contains(normalizedQuery) ||
+          item.content.toLowerCase().contains(normalizedQuery) ||
+          item.focus.toLowerCase().contains(normalizedQuery);
+      return matchesLevel && matchesQuery;
+    }).toList();
+  }
 
   List<_PracticePromptOption> _optionsForLevel(_PracticeDifficulty level) {
     final vi = appLanguage.locale.languageCode == 'vi';
@@ -174,8 +205,11 @@ class _PracticeScreenState extends State<PracticeScreen> {
   @override
   Widget build(BuildContext context) {
     final t = appLanguage.t;
+    final c = context.colors;
     final compact = MediaQuery.sizeOf(context).width < 370;
     final bottomPadding = 16 + MediaQuery.paddingOf(context).bottom;
+    final filteredItems = _filteredPracticeItems();
+    final vi = appLanguage.locale.languageCode == 'vi';
 
     return SafeArea(
       child: SingleChildScrollView(
@@ -189,6 +223,82 @@ class _PracticeScreenState extends State<PracticeScreen> {
               subtitle: t('practice.subtitle'),
             ),
             SizedBox(height: compact ? 18 : 24),
+            _PracticeSearchField(
+              controller: _searchController,
+              query: _query,
+              onChanged: (value) => setState(() => _query = value),
+              onClear: () {
+                _searchController.clear();
+                setState(() => _query = '');
+              },
+            ),
+            const SizedBox(height: 12),
+            _PracticeFilterChips(
+              selected: _selectedFilter,
+              onChanged: (value) => setState(() => _selectedFilter = value),
+            ),
+            const SizedBox(height: 18),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    vi ? 'Nội dung gợi ý' : 'Recommended content',
+                    style: _display.copyWith(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w900,
+                      color: c.textHeading,
+                    ),
+                  ),
+                ),
+                Text(
+                  vi
+                      ? '${filteredItems.length} bài'
+                      : '${filteredItems.length} lessons',
+                  style: _display.copyWith(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    color: c.textMuted,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            AnimatedSwitcher(
+              duration: const Duration(milliseconds: 220),
+              child: filteredItems.isEmpty
+                  ? _PracticeEmptyState(
+                      key: const ValueKey('practice-empty'),
+                      onReset: () {
+                        _searchController.clear();
+                        setState(() {
+                          _query = '';
+                          _selectedFilter = null;
+                        });
+                      },
+                    )
+                  : Column(
+                      key: const ValueKey('practice-list'),
+                      children: [
+                        for (final item in filteredItems) ...[
+                          _PracticeContentCard(
+                            option: item,
+                            onTap: () => _openPromptDetail(item),
+                          ),
+                          const SizedBox(height: 12),
+                        ],
+                      ],
+                    ),
+            ),
+            const SizedBox(height: 10),
+            Text(
+              vi ? 'Luyện theo cấp độ' : 'Practice by level',
+              style: _display.copyWith(
+                fontSize: 18,
+                fontWeight: FontWeight.w900,
+                color: c.textHeading,
+              ),
+            ),
+            const SizedBox(height: 12),
             _PracticeLevelCard(
               level: _PracticeDifficulty.easy,
               onTap: () => _openLevelSheet(_PracticeDifficulty.easy),
@@ -261,6 +371,25 @@ class _PracticeScreenState extends State<PracticeScreen> {
     );
   }
 
+  Future<void> _openPromptDetail(_PracticePromptOption option) async {
+    final start = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      backgroundColor: context.colors.surfaceBg,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      ),
+      builder: (context) => _PracticePromptDetailSheet(option: option),
+    );
+    if (!mounted || start != true) return;
+    _openRecording(
+      context,
+      exerciseType: option.exerciseType,
+      content: option.content,
+    );
+  }
+
   Future<void> _openLevelSheet(_PracticeDifficulty level) async {
     final options = _optionsForLevel(level);
     final selected = await showModalBottomSheet<_PracticePromptOption>(
@@ -327,6 +456,450 @@ class _PracticeScreenState extends State<PracticeScreen> {
       context,
       exerciseType: selected.exerciseType,
       content: selected.content,
+    );
+  }
+}
+
+class _PracticeSearchField extends StatelessWidget {
+  final TextEditingController controller;
+  final String query;
+  final ValueChanged<String> onChanged;
+  final VoidCallback onClear;
+
+  const _PracticeSearchField({
+    required this.controller,
+    required this.query,
+    required this.onChanged,
+    required this.onClear,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    final style = GoogleFonts.plusJakartaSans();
+    final vi = appLanguage.locale.languageCode == 'vi';
+
+    return TextField(
+      controller: controller,
+      onChanged: onChanged,
+      textInputAction: TextInputAction.search,
+      decoration: InputDecoration(
+        hintText: vi ? 'Tìm chủ đề, câu luyện...' : 'Search topics, prompts...',
+        prefixIcon: Icon(Icons.search_rounded, color: c.textMuted),
+        suffixIcon: query.isEmpty
+            ? null
+            : IconButton(
+                tooltip: vi ? 'Xóa tìm kiếm' : 'Clear search',
+                onPressed: onClear,
+                icon: Icon(Icons.close_rounded, color: c.textMuted),
+              ),
+        filled: true,
+        fillColor: c.cardBg,
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 16,
+          vertical: 14,
+        ),
+        hintStyle: style.copyWith(
+          fontSize: 14,
+          fontWeight: FontWeight.w600,
+          color: c.textMuted,
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(18),
+          borderSide: BorderSide(color: c.borderColor.withValues(alpha: 0.8)),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(18),
+          borderSide: BorderSide(color: c.accentBlue, width: 1.6),
+        ),
+      ),
+    );
+  }
+}
+
+class _PracticeFilterChips extends StatelessWidget {
+  final _PracticeDifficulty? selected;
+  final ValueChanged<_PracticeDifficulty?> onChanged;
+
+  const _PracticeFilterChips({required this.selected, required this.onChanged});
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    final style = GoogleFonts.plusJakartaSans();
+    final vi = appLanguage.locale.languageCode == 'vi';
+    final filters = <_PracticeDifficulty?>[
+      null,
+      _PracticeDifficulty.easy,
+      _PracticeDifficulty.medium,
+      _PracticeDifficulty.hard,
+    ];
+
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      physics: const BouncingScrollPhysics(),
+      child: Row(
+        children: [
+          for (final filter in filters) ...[
+            ChoiceChip(
+              selected: selected == filter,
+              onSelected: (_) => onChanged(filter),
+              label: Text(
+                filter == null ? (vi ? 'Tất cả' : 'All') : filter.label,
+              ),
+              avatar: filter == null
+                  ? Icon(Icons.apps_rounded, size: 17, color: c.accentBlue)
+                  : Icon(filter.icon, size: 17, color: filter.accent),
+              labelStyle: style.copyWith(
+                fontSize: 13,
+                fontWeight: FontWeight.w800,
+                color: selected == filter ? c.textOnAccent : c.textHeading,
+              ),
+              selectedColor: c.accentBlue,
+              backgroundColor: c.cardBg,
+              side: BorderSide(color: c.borderColor.withValues(alpha: 0.8)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(999),
+              ),
+            ),
+            const SizedBox(width: 8),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _PracticeContentCard extends StatelessWidget {
+  final _PracticePromptOption option;
+  final VoidCallback onTap;
+
+  const _PracticeContentCard({required this.option, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    final style = GoogleFonts.plusJakartaSans();
+    final vi = appLanguage.locale.languageCode == 'vi';
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(22),
+        child: Ink(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: c.cardBg,
+            borderRadius: BorderRadius.circular(22),
+            border: Border.all(color: c.borderColor.withValues(alpha: 0.72)),
+            boxShadow: [
+              BoxShadow(
+                color: c.shadowColor.withValues(alpha: 0.10),
+                blurRadius: 16,
+                offset: const Offset(0, 8),
+              ),
+            ],
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: 48,
+                height: 48,
+                decoration: BoxDecoration(
+                  color: option.level.accent.withValues(alpha: 0.14),
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Icon(option.level.icon, color: option.level.accent),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            option.title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: style.copyWith(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w900,
+                              color: c.textHeading,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        _LevelBadge(level: option.level),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      option.focus,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: style.copyWith(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        height: 1.35,
+                        color: c.textMuted,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        Icon(
+                          Icons.timer_outlined,
+                          size: 16,
+                          color: c.textMuted,
+                        ),
+                        const SizedBox(width: 5),
+                        Text(
+                          vi ? '2-3 phút' : '2-3 min',
+                          style: style.copyWith(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w800,
+                            color: c.textMuted,
+                          ),
+                        ),
+                        const Spacer(),
+                        Icon(
+                          Icons.arrow_forward_rounded,
+                          color: option.level.accent,
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _PracticeEmptyState extends StatelessWidget {
+  final VoidCallback onReset;
+
+  const _PracticeEmptyState({super.key, required this.onReset});
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    final style = GoogleFonts.plusJakartaSans();
+    final vi = appLanguage.locale.languageCode == 'vi';
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(20, 24, 20, 22),
+      decoration: BoxDecoration(
+        color: c.cardBg,
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: c.borderColor.withValues(alpha: 0.75)),
+      ),
+      child: Column(
+        children: [
+          Container(
+            width: 56,
+            height: 56,
+            decoration: BoxDecoration(
+              color: c.accentBlue.withValues(alpha: 0.12),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(Icons.search_off_rounded, color: c.accentBlue),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            vi ? 'Không tìm thấy bài phù hợp' : 'No matching lessons',
+            style: style.copyWith(
+              fontSize: 17,
+              fontWeight: FontWeight.w900,
+              color: c.textHeading,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            vi
+                ? 'Thử từ khóa ngắn hơn hoặc bỏ bộ lọc cấp độ.'
+                : 'Try a shorter keyword or clear the level filter.',
+            textAlign: TextAlign.center,
+            style: style.copyWith(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: c.textMuted,
+              height: 1.45,
+            ),
+          ),
+          const SizedBox(height: 16),
+          OutlinedButton.icon(
+            onPressed: onReset,
+            icon: const Icon(Icons.refresh_rounded),
+            label: Text(vi ? 'Đặt lại' : 'Reset'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PracticePromptDetailSheet extends StatelessWidget {
+  final _PracticePromptOption option;
+
+  const _PracticePromptDetailSheet({required this.option});
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    final style = GoogleFonts.plusJakartaSans();
+    final vi = appLanguage.locale.languageCode == 'vi';
+
+    return SafeArea(
+      top: false,
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(
+          20,
+          8,
+          20,
+          MediaQuery.paddingOf(context).bottom + 20,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  width: 52,
+                  height: 52,
+                  decoration: BoxDecoration(
+                    color: option.level.accent.withValues(alpha: 0.14),
+                    borderRadius: BorderRadius.circular(18),
+                  ),
+                  child: Icon(option.level.icon, color: option.level.accent),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _LevelBadge(level: option.level),
+                      const SizedBox(height: 6),
+                      Text(
+                        option.title,
+                        style: style.copyWith(
+                          fontSize: 20,
+                          fontWeight: FontWeight.w900,
+                          color: c.textHeading,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 18),
+            Text(
+              vi ? 'Câu luyện' : 'Practice prompt',
+              style: style.copyWith(
+                fontSize: 13,
+                fontWeight: FontWeight.w800,
+                color: c.textMuted,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: option.level.accent.withValues(alpha: 0.08),
+                borderRadius: BorderRadius.circular(18),
+                border: Border.all(
+                  color: option.level.accent.withValues(alpha: 0.18),
+                ),
+              ),
+              child: Text(
+                option.content,
+                style: style.copyWith(
+                  fontSize: 17,
+                  fontWeight: FontWeight.w800,
+                  height: 1.45,
+                  color: c.textHeading,
+                ),
+              ),
+            ),
+            const SizedBox(height: 14),
+            Text(
+              option.focus,
+              style: style.copyWith(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                height: 1.45,
+                color: c.textBody,
+              ),
+            ),
+            const SizedBox(height: 14),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                _LevelMetaChip(
+                  icon: Icons.route_rounded,
+                  label: option.lengthLabel,
+                ),
+                _LevelMetaChip(
+                  icon: Icons.abc_rounded,
+                  label: option.vocabularyLabel,
+                ),
+                _LevelMetaChip(
+                  icon: Icons.graphic_eq_rounded,
+                  label: vi ? 'AI chấm phát âm' : 'AI pronunciation score',
+                ),
+              ],
+            ),
+            const SizedBox(height: 20),
+            SizedBox(
+              width: double.infinity,
+              height: 52,
+              child: FilledButton.icon(
+                onPressed: () => Navigator.of(context).pop(true),
+                icon: const Icon(Icons.mic_rounded),
+                label: Text(vi ? 'Bắt đầu ghi âm' : 'Start recording'),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _LevelBadge extends StatelessWidget {
+  final _PracticeDifficulty level;
+
+  const _LevelBadge({required this.level});
+
+  @override
+  Widget build(BuildContext context) {
+    final style = GoogleFonts.plusJakartaSans();
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+      decoration: BoxDecoration(
+        color: level.accent.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        level.label,
+        style: style.copyWith(
+          fontSize: 11,
+          fontWeight: FontWeight.w900,
+          color: level.accent,
+        ),
+      ),
     );
   }
 }
