@@ -654,6 +654,22 @@ class _ProfileScreenState extends State<ProfileScreen> {
               ScreenHeader(
                 title: t('profile.screenTitle'),
                 subtitle: email ?? t('profile.learnerSubtitle'),
+                trailing: IconButton(
+                  tooltip: t('profile.settingsSheetTitle'),
+                  onPressed: _openSettingsSheet,
+                  style: IconButton.styleFrom(
+                    backgroundColor: c.cardBg,
+                    foregroundColor: c.textHeading,
+                    minimumSize: const Size(44, 44),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                      side: BorderSide(
+                        color: c.borderColor.withValues(alpha: 0.75),
+                      ),
+                    ),
+                  ),
+                  icon: const Icon(Icons.settings_rounded, size: 22),
+                ),
               ),
               const SizedBox(height: 14),
               Container(

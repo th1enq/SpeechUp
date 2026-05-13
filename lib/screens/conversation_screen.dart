@@ -1,14 +1,20 @@
 import 'dart:async';
+import 'dart:io' show Directory, File;
+import 'dart:math' as math;
+import 'dart:typed_data';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:record/record.dart';
 import '../main.dart' show isFirebaseSupported;
 import '../l10n/app_language.dart';
+import '../models/pronunciation_result.dart';
 import '../services/speech_input_service.dart';
 import '../services/cloud_speech_service.dart';
 import '../services/native_speech_service.dart';
+import '../services/azure_pronunciation_service.dart';
 import '../services/google_tts_service.dart';
 import '../services/local_tts_service.dart';
 import '../services/llm_chat_service.dart';
@@ -165,6 +171,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
 
     final base = GoogleFonts.plusJakartaSans();
     final t = appLanguage.t;
+    final c = context.colors;
     final compact = MediaQuery.sizeOf(context).width < 370;
     final bottomPadding = 16 + MediaQuery.paddingOf(context).bottom;
 
@@ -182,74 +189,107 @@ class _ConversationScreenState extends State<ConversationScreen> {
             ),
             const SizedBox(height: 22),
 
-            // ── Custom topic input ──
             Container(
               margin: const EdgeInsets.only(bottom: 16),
-              padding: const EdgeInsets.all(4),
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
               decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(18),
+                gradient: c.heroGradient,
+                borderRadius: BorderRadius.circular(24),
                 boxShadow: [
                   BoxShadow(
-                    color: AppColors.dashboardNavy.withValues(alpha: 0.06),
-                    blurRadius: 14,
-                    offset: const Offset(0, 5),
+                    color: c.accentBlue.withValues(alpha: 0.24),
+                    blurRadius: 18,
+                    offset: const Offset(0, 8),
                   ),
                 ],
               ),
-              child: Row(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const SizedBox(width: 14),
-                  Icon(
-                    Icons.edit_rounded,
-                    color: AppColors.onboardingBlue,
-                    size: 20,
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: TextField(
-                      controller: _customTopicController,
-                      style: base.copyWith(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                        color: AppColors.dashboardNavy,
-                      ),
-                      decoration: InputDecoration(
-                        hintText: 'Hoặc nhập chủ đề riêng...',
-                        hintStyle: base.copyWith(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w500,
-                          color: AppColors.dashboardTextMuted,
-                        ),
-                        border: InputBorder.none,
-                        contentPadding: const EdgeInsets.symmetric(
-                          vertical: 14,
-                        ),
-                      ),
+                  Text(
+                    appLanguage.locale.languageCode == 'vi'
+                        ? 'Luyện hội thoại theo tình huống'
+                        : 'Practice by real situations',
+                    style: base.copyWith(
+                      fontSize: 20,
+                      fontWeight: FontWeight.w900,
+                      color: Colors.white,
+                      height: 1.2,
                     ),
                   ),
-                  Material(
-                    color: AppColors.onboardingBlue,
-                    borderRadius: BorderRadius.circular(14),
-                    child: InkWell(
-                      onTap: () {
-                        final topic = _customTopicController.text.trim();
-                        if (topic.isEmpty) return;
-                        setState(() {
-                          _selectedScenario = 'custom';
-                          _customPrompt = topic;
-                          _inConversation = true;
-                        });
-                      },
-                      borderRadius: BorderRadius.circular(14),
-                      child: const Padding(
-                        padding: EdgeInsets.all(12),
-                        child: Icon(
-                          Icons.send_rounded,
-                          color: Colors.white,
-                          size: 20,
+                  const SizedBox(height: 8),
+                  Text(
+                    appLanguage.locale.languageCode == 'vi'
+                        ? 'Chọn mẫu có sẵn hoặc nhập chủ đề riêng. App sẽ nghe đúng câu bạn nói và chỉ ra chỗ chưa khớp.'
+                        : 'Choose a preset or enter your own topic. The app keeps your transcript and highlights mismatches.',
+                    style: base.copyWith(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.white.withValues(alpha: 0.88),
+                      height: 1.45,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Container(
+                    padding: const EdgeInsets.all(4),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.96),
+                      borderRadius: BorderRadius.circular(18),
+                    ),
+                    child: Row(
+                      children: [
+                        const SizedBox(width: 12),
+                        Icon(Icons.edit_rounded, color: c.accentBlue, size: 20),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: TextField(
+                            controller: _customTopicController,
+                            style: base.copyWith(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w700,
+                              color: AppColors.dashboardNavy,
+                            ),
+                            decoration: InputDecoration(
+                              hintText: appLanguage.locale.languageCode == 'vi'
+                                  ? 'Nhập chủ đề riêng...'
+                                  : 'Enter a custom topic...',
+                              hintStyle: base.copyWith(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w600,
+                                color: AppColors.dashboardTextMuted,
+                              ),
+                              border: InputBorder.none,
+                              contentPadding: const EdgeInsets.symmetric(
+                                vertical: 14,
+                              ),
+                            ),
+                          ),
                         ),
-                      ),
+                        Material(
+                          color: c.accentBlue,
+                          borderRadius: BorderRadius.circular(14),
+                          child: InkWell(
+                            onTap: () {
+                              final topic = _customTopicController.text.trim();
+                              if (topic.isEmpty) return;
+                              setState(() {
+                                _selectedScenario = 'custom';
+                                _customPrompt = topic;
+                                _inConversation = true;
+                              });
+                            },
+                            borderRadius: BorderRadius.circular(14),
+                            child: const Padding(
+                              padding: EdgeInsets.all(12),
+                              child: Icon(
+                                Icons.send_rounded,
+                                color: Colors.white,
+                                size: 20,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ],
@@ -274,11 +314,12 @@ class _ConversationScreenState extends State<ConversationScreen> {
             const SizedBox(height: 8),
             Container(
               decoration: BoxDecoration(
-                color: Colors.white,
+                color: c.cardBg,
                 borderRadius: BorderRadius.circular(22),
+                border: Border.all(color: c.borderColor.withValues(alpha: 0.7)),
                 boxShadow: [
                   BoxShadow(
-                    color: AppColors.dashboardNavy.withValues(alpha: 0.06),
+                    color: c.shadowColor.withValues(alpha: 0.35),
                     blurRadius: 16,
                     offset: const Offset(0, 6),
                   ),
@@ -316,7 +357,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
                                 style: base.copyWith(
                                   fontSize: 16,
                                   fontWeight: FontWeight.w800,
-                                  color: AppColors.dashboardNavy,
+                                  color: c.textHeading,
                                 ),
                               ),
                               const SizedBox(height: 2),
@@ -325,7 +366,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
                                 style: base.copyWith(
                                   fontSize: 13,
                                   fontWeight: FontWeight.w500,
-                                  color: AppColors.dashboardTextMuted,
+                                  color: c.textMuted,
                                 ),
                               ),
                             ],
@@ -506,6 +547,7 @@ class _ConversationChat extends StatefulWidget {
 
 class _ConversationChatState extends State<_ConversationChat> {
   final List<_ChatMessage> _messages = [];
+  final List<PronunciationResult> _turnPronunciationResults = [];
   late final String _sessionId;
   late final DateTime _sessionStartedAt;
   bool _isTyping = false;
@@ -525,8 +567,15 @@ class _ConversationChatState extends State<_ConversationChat> {
   bool _showTextInput = false;
   final CloudSpeechService _cloudSpeechService = CloudSpeechService();
   final NativeSpeechService _nativeSpeechService = NativeSpeechService();
+  final AudioRecorder _assessmentRecorder = AudioRecorder();
   bool _useCloudSpeech = false;
   bool _useNativeSpeech = false;
+  bool _useAzureOnlySpeech = false;
+  bool _isAssessingPronunciation = false;
+  bool _didShowOverallPronunciationSummary = false;
+  String? _assessmentAudioPath;
+  bool get _isCustomScenario =>
+      widget.customPrompt != null && widget.customPrompt!.trim().isNotEmpty;
 
   // Scripted conversation flows (AI + User full turns).
   static const Map<String, List<_ScriptTurn>> _conversationFlows = {
@@ -686,8 +735,9 @@ class _ConversationChatState extends State<_ConversationChat> {
     // Pre-check mic availability
     _checkMicAvailability();
 
-    // Custom topics require Gemini because there is no fixed script to follow.
-    _useLlm = _llmService.isConfigured;
+    // Preset scenarios use local scripts to avoid unnecessary Gemini calls.
+    // Gemini is reserved for custom topics only.
+    _useLlm = _isCustomScenario && _llmService.isConfigured;
 
     if (_useLlm) {
       _llmService.startScenario(
@@ -700,9 +750,10 @@ class _ConversationChatState extends State<_ConversationChat> {
       _messages.add(
         _ChatMessage(
           text: appLanguage.locale.languageCode == 'vi'
-              ? 'Chủ đề riêng cần GEMINI_API_KEY để tạo hội thoại động. Hãy thêm key vào .env rồi chạy lại ứng dụng.'
-              : 'Custom topics require GEMINI_API_KEY to create a dynamic conversation. Add the key to .env and restart the app.',
+              ? 'Chủ đề riêng cần Gemini để tạo hội thoại động. Hiện chưa có key hoặc Gemini đang tạm giới hạn, bạn vẫn có thể nhập câu để luyện phản xạ.'
+              : 'Custom topics need Gemini for dynamic replies. Gemini is not configured or is temporarily limited, but you can still type to practice.',
           isUser: false,
+          assessment: null,
         ),
       );
     } else {
@@ -761,13 +812,24 @@ class _ConversationChatState extends State<_ConversationChat> {
       if (!mounted) return;
       setState(() {
         _isTyping = false;
-        _messages.add(_ChatMessage(text: opening, isUser: false));
+        _messages.add(
+          _ChatMessage(text: opening, isUser: false, assessment: null),
+        );
       });
       _scrollToBottom();
       unawaited(_speakAiMessage(opening));
     } catch (e) {
       if (!mounted) return;
-      setState(() => _isTyping = false);
+      final message = _rateLimitFallbackMessage();
+      setState(() {
+        _isTyping = false;
+        _useLlm = false;
+        _showTextInput = true;
+        _messages.add(
+          _ChatMessage(text: message, isUser: false, assessment: null),
+        );
+      });
+      _scrollToBottom();
       debugPrint('[Conversation] LLM opening failed: $e');
     }
   }
@@ -782,6 +844,7 @@ class _ConversationChatState extends State<_ConversationChat> {
   void _pushNextAiTurn() {
     if (_nextTurnIndex >= _scriptFlow.length) {
       setState(() => _currentUserPrompt = null);
+      _showOverallPronunciationSummary();
       return;
     }
     final turn = _scriptFlow[_nextTurnIndex];
@@ -796,7 +859,9 @@ class _ConversationChatState extends State<_ConversationChat> {
       final aiText = _scriptFlow[_nextTurnIndex].text;
       setState(() {
         _isTyping = false;
-        _messages.add(_ChatMessage(text: aiText, isUser: false));
+        _messages.add(
+          _ChatMessage(text: aiText, isUser: false, assessment: null),
+        );
         _nextTurnIndex++;
         if (_nextTurnIndex < _scriptFlow.length &&
             !_scriptFlow[_nextTurnIndex].isAi) {
@@ -807,12 +872,49 @@ class _ConversationChatState extends State<_ConversationChat> {
       });
       _scrollToBottom();
       unawaited(_speakAiMessage(aiText));
+      if (_nextTurnIndex >= _scriptFlow.length) {
+        _showOverallPronunciationSummary();
+      }
     });
+  }
+
+  void _showOverallPronunciationSummary() {
+    if (_didShowOverallPronunciationSummary ||
+        _turnPronunciationResults.isEmpty ||
+        !mounted) {
+      return;
+    }
+    _didShowOverallPronunciationSummary = true;
+
+    double avg(double Function(PronunciationResult result) pick) {
+      final total = _turnPronunciationResults.fold<double>(
+        0,
+        (sum, result) => sum + pick(result),
+      );
+      return total / _turnPronunciationResults.length;
+    }
+
+    final accuracy = avg((result) => result.accuracyScore);
+    final fluency = avg((result) => result.fluencyScore);
+    final completeness = avg((result) => result.completenessScore);
+    final overall = avg((result) => result.overallScore);
+    final vi = appLanguage.locale.languageCode == 'vi';
+    final summary = vi
+        ? 'Tổng kết phát âm: ${overall.round()}/100. Độ đúng ${accuracy.round()}, độ trôi chảy ${fluency.round()}, độ hoàn thành câu ${completeness.round()}. Bạn đã hoàn thành hội thoại, hãy tiếp tục luyện đều nhé.'
+        : 'Pronunciation summary: ${overall.round()}/100. Accuracy ${accuracy.round()}, fluency ${fluency.round()}, completeness ${completeness.round()}. You completed the conversation. Keep practicing consistently.';
+
+    setState(() {
+      _messages.add(
+        _ChatMessage(text: summary, isUser: false, assessment: null),
+      );
+    });
+    _scrollToBottom();
+    unawaited(_speakAiMessage(summary));
   }
 
   Future<void> _toggleRecording() async {
     if (_isTyping) return;
-    if (!_useLlm && _currentUserPrompt == null) {
+    if (!_useLlm && !_isCustomScenario && _currentUserPrompt == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Không còn câu mẫu để luyện ở kịch bản này.'),
@@ -823,7 +925,10 @@ class _ConversationChatState extends State<_ConversationChat> {
 
     // Stop recording
     if (_isUserRecording) {
-      if (_useNativeSpeech) {
+      if (_useAzureOnlySpeech) {
+        setState(() => _isUserRecording = false);
+        await _submitAzureOnlyRecording();
+      } else if (_useNativeSpeech) {
         // Native speech auto-delivers results via event stream
         await _nativeSpeechService.stopListening();
         setState(() => _isUserRecording = false);
@@ -835,7 +940,7 @@ class _ConversationChatState extends State<_ConversationChat> {
         );
         if (text.isNotEmpty) {
           debugPrint('[Conversation] Cloud speech result: $text');
-          _submitCloudRecognizedMessage(text);
+          await _submitCloudRecognizedMessage(text);
         } else if (mounted) {
           final err = _cloudSpeechService.lastError;
           if (err != null) {
@@ -858,10 +963,23 @@ class _ConversationChatState extends State<_ConversationChat> {
       await _stopAiVoice();
     }
 
+    if (_shouldUseAzureOnlySpeech) {
+      final didStart = await _startAssessmentRecording();
+      if (didStart) {
+        setState(() {
+          _useAzureOnlySpeech = true;
+          _isUserRecording = true;
+        });
+        debugPrint('[Conversation] Azure-only assessment recording started');
+        return;
+      }
+    }
+
     // Start recording with native speech (on-device, free)
     if (_useNativeSpeech) {
       _nativeSpeechService.resetSession();
       _lastSpeechError = null;
+      await _startAssessmentRecording();
       final didStart = await _nativeSpeechService.startListening(
         locale: appLanguage.speechLanguageCode,
       );
@@ -869,6 +987,8 @@ class _ConversationChatState extends State<_ConversationChat> {
         setState(() => _isUserRecording = true);
         debugPrint('[Conversation] Native speech recording started');
       } else if (mounted) {
+        await _discardAssessmentRecording();
+        if (!mounted) return;
         setState(() => _showTextInput = true);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -917,12 +1037,15 @@ class _ConversationChatState extends State<_ConversationChat> {
 
     _speechService.resetSession();
     _lastSpeechError = null;
+    await _startAssessmentRecording();
     final didStart = await _speechService.startListening(
       localeId: _localeIdForApp(),
       listenFor: const Duration(seconds: 45),
       pauseFor: const Duration(seconds: 3),
     );
     if (!didStart && mounted) {
+      await _discardAssessmentRecording();
+      if (!mounted) return;
       setState(() => _showTextInput = true);
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -956,6 +1079,30 @@ class _ConversationChatState extends State<_ConversationChat> {
               'text': m.text,
               'isUser': m.isUser,
               'role': m.isUser ? 'user' : 'assistant',
+              if (m.assessment != null) ...{
+                'expectedText': m.assessment!.expectedText,
+                'spokenText': m.assessment!.spokenText,
+                'accuracy': m.assessment!.accuracy,
+                'feedback': m.assessment!.feedback,
+                if (m.assessment!.azureResult != null) ...{
+                  'azureAccuracyScore':
+                      m.assessment!.azureResult!.accuracyScore,
+                  'azureFluencyScore': m.assessment!.azureResult!.fluencyScore,
+                  'azureCompletenessScore':
+                      m.assessment!.azureResult!.completenessScore,
+                  'azureProsodyScore': m.assessment!.azureResult!.prosodyScore,
+                  'azureOverallScore': m.assessment!.azureResult!.overallScore,
+                },
+                'issues': m.assessment!.issues
+                    .map(
+                      (issue) => {
+                        'type': issue.type.name,
+                        'expected': issue.expected,
+                        'actual': issue.actual,
+                      },
+                    )
+                    .toList(),
+              },
             },
           )
           .toList();
@@ -966,7 +1113,11 @@ class _ConversationChatState extends State<_ConversationChat> {
           sessionId: _sessionId,
           scenarioTitle: widget.scenario.title,
           customPrompt: widget.customPrompt,
-          provider: _useLlm ? 'gemini' : 'scripted',
+          provider: _useLlm
+              ? 'gemini'
+              : _isCustomScenario
+              ? 'offline-custom'
+              : 'scripted',
           startedAt: _sessionStartedAt,
           endedAt: DateTime.now(),
         ),
@@ -981,6 +1132,7 @@ class _ConversationChatState extends State<_ConversationChat> {
     unawaited(_stopAiVoice());
     _ttsPlayer.dispose();
     _localTtsService.stop();
+    _assessmentRecorder.dispose();
     _scrollController.dispose();
     _textInputController.dispose();
     super.dispose();
@@ -1030,9 +1182,13 @@ class _ConversationChatState extends State<_ConversationChat> {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
-                  if (_isTyping)
+                  if (_isTyping || _isAssessingPronunciation)
                     Text(
-                      _isAiSpeaking ? 'Đang phát giọng...' : 'Đang trả lời...',
+                      _isAssessingPronunciation
+                          ? 'Azure đang chấm phát âm...'
+                          : _isAiSpeaking
+                          ? 'Đang phát giọng...'
+                          : 'Đang trả lời...',
                       style: base.copyWith(
                         fontSize: 11,
                         fontWeight: FontWeight.w600,
@@ -1069,13 +1225,16 @@ class _ConversationChatState extends State<_ConversationChat> {
               controller: _scrollController,
               physics: const BouncingScrollPhysics(),
               padding: const EdgeInsets.symmetric(vertical: 12),
-              itemCount: _messages.length + (_isTyping ? 1 : 0),
+              itemCount:
+                  _messages.length +
+                  ((_isTyping || _isAssessingPronunciation) ? 1 : 0),
               itemBuilder: (context, index) {
-                if (index == _messages.length && _isTyping) {
+                if (index == _messages.length &&
+                    (_isTyping || _isAssessingPronunciation)) {
                   return const TypingIndicator();
                 }
                 final msg = _messages[index];
-                return ChatBubble(message: msg.text, isUser: msg.isUser);
+                return _AssessedChatBubble(message: msg);
               },
             ),
           ),
@@ -1316,6 +1475,7 @@ class _ConversationChatState extends State<_ConversationChat> {
 
   /// Returns the currently recognized text from whichever speech service is active.
   String get _activeRecognizedText {
+    if (_useAzureOnlySpeech) return '';
     if (_useNativeSpeech) return _nativeSpeechService.recognizedText;
     if (_useCloudSpeech) return _cloudSpeechService.recognizedText;
     return _speechService.recognizedText;
@@ -1323,6 +1483,7 @@ class _ConversationChatState extends State<_ConversationChat> {
 
   void _handleSpeechUpdate() {
     if (!mounted) return;
+    if (_useAzureOnlySpeech) return;
     final isListening = _speechService.isListening;
     final error = _speechService.lastError;
     final justFinishedRecording = _isUserRecording && !isListening;
@@ -1335,7 +1496,7 @@ class _ConversationChatState extends State<_ConversationChat> {
     }
 
     if (justFinishedRecording) {
-      _submitRecognizedMessage();
+      unawaited(_submitRecognizedMessage());
     }
 
     if (error != null &&
@@ -1355,6 +1516,7 @@ class _ConversationChatState extends State<_ConversationChat> {
   /// Handle updates from native Android speech recognizer.
   void _handleNativeSpeechUpdate() {
     if (!mounted) return;
+    if (_useAzureOnlySpeech) return;
     final isListening = _nativeSpeechService.isListening;
     final error = _nativeSpeechService.lastError;
     final text = _nativeSpeechService.recognizedText;
@@ -1369,8 +1531,9 @@ class _ConversationChatState extends State<_ConversationChat> {
     // If we got a final result and stopped listening, submit it
     if (!isListening && text.isNotEmpty && !_isUserRecording) {
       debugPrint('[Conversation] Native speech result: $text');
-      _submitCloudRecognizedMessage(text); // Reuse same submission logic
-      _nativeSpeechService.resetSession();
+      unawaited(
+        _submitCloudRecognizedMessage(text),
+      ); // Reuse same submission logic
       return;
     }
 
@@ -1389,25 +1552,282 @@ class _ConversationChatState extends State<_ConversationChat> {
     }
   }
 
+  bool get _shouldUseAzureOnlySpeech {
+    return !_isCustomScenario &&
+        _currentUserPrompt != null &&
+        AzurePronunciationService().isConfigured;
+  }
+
+  Future<void> _submitAzureOnlyRecording() async {
+    final expectedText = _currentUserPrompt;
+    if (expectedText == null || _nextTurnIndex >= _scriptFlow.length) {
+      await _discardAssessmentRecording();
+      _useAzureOnlySpeech = false;
+      return;
+    }
+
+    final expected = _scriptFlow[_nextTurnIndex];
+    if (expected.isAi) {
+      await _discardAssessmentRecording();
+      _useAzureOnlySpeech = false;
+      return;
+    }
+
+    final audioBytes = await _consumeAssessmentAudioBytes();
+    if (audioBytes == null) {
+      _useAzureOnlySpeech = false;
+      if (!mounted) return;
+      setState(() => _showTextInput = true);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Không lấy được audio để chấm phát âm.')),
+      );
+      return;
+    }
+
+    PronunciationResult? azureResult;
+    if (mounted) setState(() => _isAssessingPronunciation = true);
+    try {
+      azureResult = await AzurePronunciationService().assess(
+        audioBytes: audioBytes,
+        referenceText: expected.text,
+        language: appLanguage.speechLanguageCode,
+      );
+      debugPrint(
+        '[Conversation] Azure recognized user sentence: "${azureResult.recognizedText}"',
+      );
+    } catch (e) {
+      debugPrint('[Conversation] Azure-only assessment failed: $e');
+    } finally {
+      _useAzureOnlySpeech = false;
+      if (mounted) setState(() => _isAssessingPronunciation = false);
+    }
+
+    if (!mounted) return;
+    if (azureResult == null) {
+      setState(() => _showTextInput = true);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Azure chấm phát âm lỗi. Hãy thử lại.')),
+      );
+      return;
+    }
+
+    final spokenText = azureResult.recognizedText.isNotEmpty
+        ? azureResult.recognizedText
+        : azureResult.words.map((word) => word.word).join(' ').trim();
+    final displayedSpokenText = spokenText.isNotEmpty
+        ? spokenText
+        : (appLanguage.locale.languageCode == 'vi'
+              ? 'Azure không nhận dạng được câu người dùng đọc'
+              : 'Azure could not recognize the user sentence');
+    final shouldRetry = _shouldRetryPronunciation(azureResult);
+    final feedback = _pronunciationTurnFeedback(
+      azureResult,
+      shouldRetry: shouldRetry,
+    );
+
+    setState(() {
+      _messages.add(
+        _ChatMessage(text: displayedSpokenText, isUser: true, assessment: null),
+      );
+      _messages.add(
+        _ChatMessage(text: feedback, isUser: false, assessment: null),
+      );
+      if (shouldRetry) {
+        _currentUserPrompt = expected.text;
+      } else {
+        _turnPronunciationResults.add(azureResult!);
+        _nextTurnIndex++;
+        _currentUserPrompt = null;
+      }
+    });
+    _scrollToBottom();
+
+    await _speakAndPause(feedback);
+    if (!mounted || shouldRetry) return;
+    Future.delayed(const Duration(milliseconds: 250), () {
+      if (mounted) _pushNextAiTurn();
+    });
+  }
+
+  bool _shouldRetryPronunciation(PronunciationResult result) {
+    return result.overallScore < 60 ||
+        result.accuracyScore < 55 ||
+        result.completenessScore < 60;
+  }
+
+  String _pronunciationTurnFeedback(
+    PronunciationResult result, {
+    required bool shouldRetry,
+  }) {
+    final vi = appLanguage.locale.languageCode == 'vi';
+    final overall = result.overallScore.round();
+    final details = vi
+        ? 'Điểm câu này: $overall/100. Độ đúng ${result.accuracyScore.round()}, độ trôi chảy ${result.fluencyScore.round()}, độ đủ câu ${result.completenessScore.round()}.'
+        : 'Sentence score: $overall/100. Accuracy ${result.accuracyScore.round()}, fluency ${result.fluencyScore.round()}, completeness ${result.completenessScore.round()}.';
+    if (shouldRetry) {
+      return vi
+          ? '$details Câu này chưa ổn, bạn hãy đọc lại cùng câu mẫu một lần nữa nhé.'
+          : '$details This attempt needs more work. Please read the same prompt again.';
+    }
+    if (overall >= 88) {
+      return vi
+          ? '$details Bạn làm tốt lắm, phát âm rất rõ. Hãy tiếp tục phát huy. Chúng ta tiếp tục nhé.'
+          : '$details Great job, your pronunciation was clear. Keep it up. Let us continue.';
+    }
+    if (overall >= 70) {
+      return vi
+          ? '$details Bạn nói khá tốt rồi. Hãy chậm lại một chút ở các từ khó. Chúng ta tiếp tục nhé.'
+          : '$details Good attempt. Slow down a little on difficult words. Let us continue.';
+    }
+    return vi
+        ? '$details Mình nghe được ý chính rồi. Hãy thử nói rõ từng từ hơn ở lượt tiếp theo. Chúng ta tiếp tục nhé.'
+        : '$details I understood the main idea. Try to pronounce each word more clearly next time. Let us continue.';
+  }
+
+  Future<void> _speakAndPause(String text) async {
+    await _speakAiMessage(text);
+    final estimatedMs = (text.length * 95).clamp(2200, 9000);
+    await Future.delayed(Duration(milliseconds: estimatedMs));
+  }
+
+  Future<_SpeechAssessment> _buildSpeechAssessment({
+    required String expectedText,
+    required String spokenText,
+  }) async {
+    PronunciationResult? azureResult;
+    final azureService = AzurePronunciationService();
+    final audioBytes = await _consumeAssessmentAudioBytes();
+
+    if (azureService.isConfigured && audioBytes != null) {
+      if (mounted) setState(() => _isAssessingPronunciation = true);
+      try {
+        azureResult = await azureService.assess(
+          audioBytes: audioBytes,
+          referenceText: expectedText,
+          language: appLanguage.speechLanguageCode,
+        );
+        debugPrint(
+          '[Conversation] Azure recognized user sentence: "${azureResult.recognizedText}"',
+        );
+      } catch (e) {
+        debugPrint('[Conversation] Azure pronunciation assessment failed: $e');
+      } finally {
+        if (mounted) setState(() => _isAssessingPronunciation = false);
+      }
+    }
+
+    return _SpeechAssessment.compare(
+      expectedText: expectedText,
+      spokenText: spokenText,
+      azureResult: azureResult,
+    );
+  }
+
+  Future<bool> _startAssessmentRecording() async {
+    final azureService = AzurePronunciationService();
+    if (!azureService.isConfigured || _useCloudSpeech) return false;
+
+    if (await _assessmentRecorder.isRecording()) {
+      await _assessmentRecorder.stop();
+    }
+
+    final hasPermission = await _assessmentRecorder.hasPermission();
+    if (!hasPermission) return false;
+
+    final dir = Directory.systemTemp;
+    _assessmentAudioPath =
+        '${dir.path}/chat_assessment_${DateTime.now().millisecondsSinceEpoch}.wav';
+    await _assessmentRecorder.start(
+      const RecordConfig(
+        encoder: AudioEncoder.wav,
+        sampleRate: 16000,
+        numChannels: 1,
+        bitRate: 256000,
+      ),
+      path: _assessmentAudioPath!,
+    );
+    return true;
+  }
+
+  Future<Uint8List?> _consumeAssessmentAudioBytes() async {
+    if (_useCloudSpeech) {
+      return _cloudSpeechService.lastRecordedAudioBytes;
+    }
+
+    try {
+      final path = await _assessmentRecorder.stop();
+      final targetPath = path ?? _assessmentAudioPath;
+      _assessmentAudioPath = null;
+      if (targetPath == null || targetPath.isEmpty) return null;
+      final file = File(targetPath);
+      if (!await file.exists()) return null;
+      final bytes = await file.readAsBytes();
+      await file.delete().catchError((_) => file);
+      if (bytes.length < 1000) return null;
+      return bytes;
+    } catch (_) {
+      _assessmentAudioPath = null;
+      return null;
+    }
+  }
+
+  Future<void> _discardAssessmentRecording() async {
+    try {
+      if (await _assessmentRecorder.isRecording()) {
+        final path = await _assessmentRecorder.stop();
+        final targetPath = path ?? _assessmentAudioPath;
+        if (targetPath != null && targetPath.isNotEmpty) {
+          final file = File(targetPath);
+          if (await file.exists()) {
+            await file.delete().catchError((_) => file);
+          }
+        }
+      }
+    } catch (_) {
+      // Best-effort cleanup only.
+    } finally {
+      _assessmentAudioPath = null;
+      _useAzureOnlySpeech = false;
+      if (mounted && _isAssessingPronunciation) {
+        setState(() => _isAssessingPronunciation = false);
+      }
+    }
+  }
+
   /// Submit text recognized by cloud speech service.
-  void _submitCloudRecognizedMessage(String text) {
-    if (text.isEmpty) return;
+  Future<void> _submitCloudRecognizedMessage(String text) async {
+    if (text.isEmpty) {
+      await _discardAssessmentRecording();
+      return;
+    }
     _cloudSpeechService.resetSession();
+    _nativeSpeechService.resetSession();
 
     if (_useLlm) {
+      await _discardAssessmentRecording();
       _submitLlmMessage(text);
+      return;
+    }
+    if (_isCustomScenario) {
+      await _discardAssessmentRecording();
+      _submitLocalCustomMessage(text);
       return;
     }
 
     // Scripted flow
     if (_currentUserPrompt == null || _nextTurnIndex >= _scriptFlow.length) {
+      await _discardAssessmentRecording();
       return;
     }
     final expected = _scriptFlow[_nextTurnIndex];
-    if (expected.isAi) return;
+    if (expected.isAi) {
+      await _discardAssessmentRecording();
+      return;
+    }
+    await _buildSpeechAssessment(expectedText: expected.text, spokenText: text);
 
     setState(() {
-      _messages.add(_ChatMessage(text: text, isUser: true));
+      _messages.add(_ChatMessage(text: text, isUser: true, assessment: null));
       _nextTurnIndex++;
       _currentUserPrompt = null;
     });
@@ -1418,35 +1838,51 @@ class _ConversationChatState extends State<_ConversationChat> {
     });
   }
 
-  void _submitRecognizedMessage() {
+  Future<void> _submitRecognizedMessage() async {
     final transcript = _speechService.recognizedText;
     if (transcript.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(appLanguage.t('practice.noSpeechDetected'))),
       );
       _speechService.resetSession();
+      await _discardAssessmentRecording();
       return;
     }
 
     if (_useLlm) {
+      await _discardAssessmentRecording();
       _submitLlmMessage(transcript);
+      return;
+    }
+    if (_isCustomScenario) {
+      await _discardAssessmentRecording();
+      _submitLocalCustomMessage(transcript);
+      _speechService.resetSession();
       return;
     }
 
     // Scripted flow
     if (_currentUserPrompt == null || _nextTurnIndex >= _scriptFlow.length) {
       _speechService.resetSession();
+      await _discardAssessmentRecording();
       return;
     }
 
     final expected = _scriptFlow[_nextTurnIndex];
     if (expected.isAi) {
       _speechService.resetSession();
+      await _discardAssessmentRecording();
       return;
     }
+    await _buildSpeechAssessment(
+      expectedText: expected.text,
+      spokenText: transcript,
+    );
 
     setState(() {
-      _messages.add(_ChatMessage(text: expected.text, isUser: true));
+      _messages.add(
+        _ChatMessage(text: transcript, isUser: true, assessment: null),
+      );
       _nextTurnIndex++;
       _currentUserPrompt = null;
     });
@@ -1467,6 +1903,10 @@ class _ConversationChatState extends State<_ConversationChat> {
       _submitLlmMessage(text);
       return;
     }
+    if (_isCustomScenario) {
+      _submitLocalCustomMessage(text);
+      return;
+    }
 
     // Scripted flow: just add user text and push next AI turn
     if (_currentUserPrompt == null || _nextTurnIndex >= _scriptFlow.length) {
@@ -1475,9 +1915,10 @@ class _ConversationChatState extends State<_ConversationChat> {
 
     final expected = _scriptFlow[_nextTurnIndex];
     if (expected.isAi) return;
+    _SpeechAssessment.compare(expectedText: expected.text, spokenText: text);
 
     setState(() {
-      _messages.add(_ChatMessage(text: text, isUser: true));
+      _messages.add(_ChatMessage(text: text, isUser: true, assessment: null));
       _nextTurnIndex++;
       _currentUserPrompt = null;
     });
@@ -1490,7 +1931,9 @@ class _ConversationChatState extends State<_ConversationChat> {
 
   Future<void> _submitLlmMessage(String userText) async {
     setState(() {
-      _messages.add(_ChatMessage(text: userText, isUser: true));
+      _messages.add(
+        _ChatMessage(text: userText, isUser: true, assessment: null),
+      );
       _isTyping = true;
     });
     _speechService.resetSession();
@@ -1501,17 +1944,58 @@ class _ConversationChatState extends State<_ConversationChat> {
       if (!mounted) return;
       setState(() {
         _isTyping = false;
-        _messages.add(_ChatMessage(text: reply, isUser: false));
+        _messages.add(
+          _ChatMessage(text: reply, isUser: false, assessment: null),
+        );
       });
       _scrollToBottom();
       unawaited(_speakAiMessage(reply));
     } catch (e) {
       if (!mounted) return;
-      setState(() => _isTyping = false);
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('AI error: $e')));
+      final isRateLimited = e is LlmChatException && e.isRateLimited;
+      final reply = isRateLimited
+          ? _rateLimitFallbackMessage()
+          : (appLanguage.locale.languageCode == 'vi'
+                ? 'AI đang tạm lỗi. Mình đã lưu câu bạn vừa nói, hãy thử lại sau ít phút.'
+                : 'AI is temporarily unavailable. Your message was saved; please try again in a few minutes.');
+      setState(() {
+        _isTyping = false;
+        if (isRateLimited) _useLlm = false;
+        _showTextInput = true;
+        _messages.add(
+          _ChatMessage(text: reply, isUser: false, assessment: null),
+        );
+      });
+      _scrollToBottom();
     }
+  }
+
+  void _submitLocalCustomMessage(String userText) {
+    final reply = _localCustomReply(userText);
+    setState(() {
+      _messages.add(
+        _ChatMessage(text: userText, isUser: true, assessment: null),
+      );
+      _messages.add(_ChatMessage(text: reply, isUser: false, assessment: null));
+    });
+    _speechService.resetSession();
+    _cloudSpeechService.resetSession();
+    _nativeSpeechService.resetSession();
+    _scrollToBottom();
+  }
+
+  String _rateLimitFallbackMessage() {
+    if (appLanguage.locale.languageCode != 'vi') {
+      return 'Gemini is temporarily rate limited, so I switched this chat to offline practice mode. You can continue speaking or typing; dynamic AI replies will be available again later.';
+    }
+    return 'Gemini đang bị giới hạn tạm thời do quá nhiều request, nên mình đã chuyển cuộc trò chuyện sang chế độ luyện offline. Bạn vẫn có thể nói hoặc nhập câu để tiếp tục luyện.';
+  }
+
+  String _localCustomReply(String userText) {
+    if (appLanguage.locale.languageCode != 'vi') {
+      return 'I heard: "$userText". Good. Try expanding that answer with one more detail, then say it again clearly.';
+    }
+    return 'Mình đã nghe: "$userText". Tốt rồi. Hãy thử nói lại câu đó chậm hơn và thêm một chi tiết nữa để luyện phản xạ.';
   }
 
   String _localeIdForApp() {
@@ -1607,11 +2091,671 @@ class _ConversationChatState extends State<_ConversationChat> {
   }
 }
 
+class _AssessedChatBubble extends StatelessWidget {
+  final _ChatMessage message;
+
+  const _AssessedChatBubble({required this.message});
+
+  @override
+  Widget build(BuildContext context) {
+    if (message.assessment == null) {
+      return ChatBubble(message: message.text, isUser: message.isUser);
+    }
+
+    final c = context.colors;
+    final base = GoogleFonts.plusJakartaSans();
+    final assessment = message.assessment!;
+    final scoreColor = assessment.accuracy >= 85
+        ? c.feedbackGood
+        : assessment.accuracy >= 65
+        ? c.feedbackWarning
+        : c.error;
+    final vi = appLanguage.locale.languageCode == 'vi';
+
+    return Align(
+      alignment: Alignment.centerRight,
+      child: Container(
+        constraints: BoxConstraints(
+          maxWidth: MediaQuery.sizeOf(context).width * 0.88,
+        ),
+        margin: const EdgeInsets.symmetric(vertical: 7, horizontal: 16),
+        decoration: BoxDecoration(
+          color: c.cardBg,
+          borderRadius: BorderRadius.circular(22),
+          border: Border.all(color: c.borderColor.withValues(alpha: 0.78)),
+          boxShadow: [
+            BoxShadow(
+              color: c.shadowColor.withValues(alpha: 0.35),
+              blurRadius: 14,
+              offset: const Offset(0, 5),
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+              decoration: BoxDecoration(
+                gradient: c.heroGradient,
+                borderRadius: const BorderRadius.vertical(
+                  top: Radius.circular(22),
+                ),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    vi ? 'Bạn đã nói' : 'You said',
+                    style: base.copyWith(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w900,
+                      color: Colors.white.withValues(alpha: 0.78),
+                    ),
+                  ),
+                  const SizedBox(height: 5),
+                  Text(
+                    assessment.spokenText.isNotEmpty
+                        ? assessment.spokenText
+                        : message.text,
+                    style: base.copyWith(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w700,
+                      height: 1.42,
+                      color: Colors.white,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Container(
+                        width: 44,
+                        height: 44,
+                        decoration: BoxDecoration(
+                          color: scoreColor.withValues(alpha: 0.12),
+                          shape: BoxShape.circle,
+                        ),
+                        alignment: Alignment.center,
+                        child: Text(
+                          '${assessment.accuracy}',
+                          style: base.copyWith(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w900,
+                            color: scoreColor,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              vi ? 'Độ khớp câu mẫu' : 'Prompt match',
+                              style: base.copyWith(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w900,
+                                color: c.textHeading,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              '${assessment.matchedWords}/${assessment.expectedWords} ${vi ? 'từ khớp' : 'words matched'}',
+                              style: base.copyWith(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700,
+                                color: c.textMuted,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  if (assessment.azureResult != null) ...[
+                    const SizedBox(height: 12),
+                    _AzureScoreGrid(result: assessment.azureResult!),
+                  ],
+                  const SizedBox(height: 12),
+                  _AssessmentTextBlock(
+                    label: vi ? 'Câu người dùng đọc' : 'User sentence',
+                    text: assessment.spokenText.isNotEmpty
+                        ? assessment.spokenText
+                        : message.text,
+                    icon: Icons.record_voice_over_rounded,
+                  ),
+                  const SizedBox(height: 10),
+                  _AssessmentTextBlock(
+                    label: vi ? 'Câu mẫu' : 'Original prompt',
+                    text: assessment.expectedText,
+                    icon: Icons.flag_rounded,
+                  ),
+                  if (assessment.issues.isNotEmpty) ...[
+                    const SizedBox(height: 12),
+                    Text(
+                      vi ? 'Chỗ cần sửa' : 'Needs attention',
+                      style: base.copyWith(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w900,
+                        color: c.textHeading,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: assessment.issues.take(8).map((issue) {
+                        return _IssueChip(issue: issue);
+                      }).toList(),
+                    ),
+                  ],
+                  const SizedBox(height: 12),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: scoreColor.withValues(alpha: 0.08),
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: Text(
+                      assessment.feedback,
+                      style: base.copyWith(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        color: c.textBody,
+                        height: 1.4,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _AssessmentTextBlock extends StatelessWidget {
+  final String label;
+  final String text;
+  final IconData icon;
+
+  const _AssessmentTextBlock({
+    required this.label,
+    required this.text,
+    required this.icon,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    final base = GoogleFonts.plusJakartaSans();
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: c.metricRowBg.withValues(alpha: 0.58),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: c.borderColor.withValues(alpha: 0.55)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, size: 15, color: c.accentBlue),
+              const SizedBox(width: 6),
+              Text(
+                label,
+                style: base.copyWith(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w900,
+                  color: c.textMuted,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            text,
+            style: base.copyWith(
+              fontSize: 13,
+              fontWeight: FontWeight.w700,
+              color: c.textHeading,
+              height: 1.4,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _AzureScoreGrid extends StatelessWidget {
+  final PronunciationResult result;
+
+  const _AzureScoreGrid({required this.result});
+
+  @override
+  Widget build(BuildContext context) {
+    final vi = appLanguage.locale.languageCode == 'vi';
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final gap = constraints.maxWidth < 300 ? 6.0 : 8.0;
+        final itemWidth = (constraints.maxWidth - gap * 2) / 3;
+        return Wrap(
+          spacing: gap,
+          runSpacing: gap,
+          children: [
+            SizedBox(
+              width: itemWidth,
+              child: _AzureScorePill(
+                label: vi ? 'Độ đúng' : 'Accuracy',
+                value: result.accuracyScore,
+                icon: Icons.gps_fixed_rounded,
+              ),
+            ),
+            SizedBox(
+              width: itemWidth,
+              child: _AzureScorePill(
+                label: vi ? 'Độ trôi' : 'Fluency',
+                value: result.fluencyScore,
+                icon: Icons.speed_rounded,
+              ),
+            ),
+            SizedBox(
+              width: itemWidth,
+              child: _AzureScorePill(
+                label: vi ? 'Đủ câu' : 'Complete',
+                value: result.completenessScore,
+                icon: Icons.done_all_rounded,
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _AzureScorePill extends StatelessWidget {
+  final String label;
+  final double value;
+  final IconData icon;
+
+  const _AzureScorePill({
+    required this.label,
+    required this.value,
+    required this.icon,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    final base = GoogleFonts.plusJakartaSans();
+    final color = value >= 80
+        ? c.feedbackGood
+        : value >= 60
+        ? c.feedbackWarning
+        : c.error;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 10),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.09),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Column(
+        children: [
+          Icon(icon, size: 16, color: color),
+          const SizedBox(height: 4),
+          Text(
+            value.round().toString(),
+            style: base.copyWith(
+              fontSize: 14,
+              fontWeight: FontWeight.w900,
+              color: color,
+              height: 1,
+            ),
+          ),
+          const SizedBox(height: 3),
+          Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: base.copyWith(
+              fontSize: 9,
+              fontWeight: FontWeight.w800,
+              color: c.textMuted,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _IssueChip extends StatelessWidget {
+  final _SpeechIssue issue;
+
+  const _IssueChip({required this.issue});
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    final base = GoogleFonts.plusJakartaSans();
+    final color = switch (issue.type) {
+      _SpeechIssueType.missing => c.error,
+      _SpeechIssueType.extra => c.feedbackWarning,
+      _SpeechIssueType.different => c.feedbackAttention,
+      _SpeechIssueType.pronunciation => c.accentPurple,
+    };
+    final value = switch (issue.type) {
+      _SpeechIssueType.missing => issue.expected ?? '',
+      _SpeechIssueType.extra => issue.actual ?? '',
+      _SpeechIssueType.different =>
+        '${issue.expected ?? ''} -> ${issue.actual ?? ''}',
+      _SpeechIssueType.pronunciation =>
+        '${issue.expected ?? ''} ~ ${issue.actual ?? ''}',
+    };
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: color.withValues(alpha: 0.22)),
+      ),
+      child: Text(
+        '${issue.label(context)}: $value',
+        style: base.copyWith(
+          fontSize: 11,
+          fontWeight: FontWeight.w800,
+          color: color,
+        ),
+      ),
+    );
+  }
+}
+
 class _ChatMessage {
   final String text;
   final bool isUser;
+  final _SpeechAssessment? assessment;
 
-  const _ChatMessage({required this.text, required this.isUser});
+  const _ChatMessage({
+    required this.text,
+    required this.isUser,
+    this.assessment,
+  });
+}
+
+enum _SpeechIssueType { missing, extra, different, pronunciation }
+
+class _SpeechIssue {
+  final _SpeechIssueType type;
+  final String? expected;
+  final String? actual;
+
+  const _SpeechIssue({required this.type, this.expected, this.actual});
+
+  String label(BuildContext context) {
+    final vi = appLanguage.locale.languageCode == 'vi';
+    switch (type) {
+      case _SpeechIssueType.missing:
+        return vi ? 'Thiếu từ' : 'Missing word';
+      case _SpeechIssueType.extra:
+        return vi ? 'Thừa từ' : 'Extra word';
+      case _SpeechIssueType.different:
+        return vi ? 'Nói khác câu mẫu' : 'Different word';
+      case _SpeechIssueType.pronunciation:
+        return vi ? 'Phát âm/chính tả chưa khớp' : 'Pronunciation/spelling';
+    }
+  }
+}
+
+class _SpeechAssessment {
+  final String expectedText;
+  final String spokenText;
+  final int accuracy;
+  final int matchedWords;
+  final int expectedWords;
+  final List<_SpeechIssue> issues;
+  final PronunciationResult? azureResult;
+
+  const _SpeechAssessment({
+    required this.expectedText,
+    required this.spokenText,
+    required this.accuracy,
+    required this.matchedWords,
+    required this.expectedWords,
+    required this.issues,
+    this.azureResult,
+  });
+
+  String get feedback {
+    final vi = appLanguage.locale.languageCode == 'vi';
+    if (accuracy >= 90) {
+      return vi
+          ? 'Rất tốt. Câu nói gần như khớp với mẫu.'
+          : 'Great. Your sentence is very close to the prompt.';
+    }
+    if (accuracy >= 72) {
+      return vi
+          ? 'Khá tốt. Hãy luyện lại các từ được đánh dấu.'
+          : 'Good attempt. Practice the highlighted words again.';
+    }
+    if (accuracy >= 50) {
+      return vi
+          ? 'Bạn đã nói được một phần câu. Cần chậm lại và đọc rõ từng cụm.'
+          : 'You got part of the sentence. Slow down and articulate each phrase.';
+    }
+    return vi
+        ? 'Câu nhận dạng còn lệch nhiều. Hãy nghe lại câu mẫu rồi thử lại.'
+        : 'The recognized sentence differs a lot. Listen again and retry.';
+  }
+
+  static _SpeechAssessment compare({
+    required String expectedText,
+    required String spokenText,
+    PronunciationResult? azureResult,
+  }) {
+    final expected = _SpeechToken.tokenize(expectedText);
+    final spoken = _SpeechToken.tokenize(spokenText);
+    final lcs = _longestCommonSubsequence(expected, spoken);
+    final issues = <_SpeechIssue>[];
+    var matched = 0;
+    var expectedCursor = 0;
+    var spokenCursor = 0;
+
+    for (final pair in lcs) {
+      _appendGapIssues(
+        issues,
+        expected.sublist(expectedCursor, pair.expectedIndex),
+        spoken.sublist(spokenCursor, pair.spokenIndex),
+      );
+      matched++;
+      expectedCursor = pair.expectedIndex + 1;
+      spokenCursor = pair.spokenIndex + 1;
+    }
+
+    _appendGapIssues(
+      issues,
+      expected.sublist(expectedCursor),
+      spoken.sublist(spokenCursor),
+    );
+
+    final denominator = math.max(expected.length, spoken.length);
+    final accuracy = denominator == 0
+        ? 0
+        : ((matched / denominator) * 100).round().clamp(0, 100);
+
+    final azureIssues = _issuesFromAzure(azureResult);
+    return _SpeechAssessment(
+      expectedText: expectedText,
+      spokenText: spokenText,
+      accuracy: azureResult?.overallScore.round().clamp(0, 100) ?? accuracy,
+      matchedWords: azureResult == null
+          ? matched
+          : math.max(0, (azureResult.words.length - azureIssues.length)),
+      expectedWords: azureResult?.words.length ?? expected.length,
+      issues: azureIssues.isNotEmpty ? azureIssues : issues,
+      azureResult: azureResult,
+    );
+  }
+
+  static List<_SpeechIssue> _issuesFromAzure(PronunciationResult? result) {
+    if (result == null) return const [];
+    return [
+      for (final word in result.words)
+        if (word.hasError || word.accuracyScore < 70)
+          _SpeechIssue(
+            type: switch (word.errorType.toLowerCase()) {
+              'omission' => _SpeechIssueType.missing,
+              'insertion' => _SpeechIssueType.extra,
+              'mispronunciation' => _SpeechIssueType.pronunciation,
+              _ => _SpeechIssueType.pronunciation,
+            },
+            expected: word.errorType.toLowerCase() == 'insertion'
+                ? null
+                : word.word,
+            actual: word.errorType.toLowerCase() == 'insertion'
+                ? word.word
+                : null,
+          ),
+    ];
+  }
+
+  static void _appendGapIssues(
+    List<_SpeechIssue> issues,
+    List<_SpeechToken> expectedGap,
+    List<_SpeechToken> spokenGap,
+  ) {
+    final paired = math.min(expectedGap.length, spokenGap.length);
+    for (var i = 0; i < paired; i++) {
+      final expected = expectedGap[i].raw;
+      final actual = spokenGap[i].raw;
+      issues.add(
+        _SpeechIssue(
+          type:
+              _looksSimilar(expectedGap[i].normalized, spokenGap[i].normalized)
+              ? _SpeechIssueType.pronunciation
+              : _SpeechIssueType.different,
+          expected: expected,
+          actual: actual,
+        ),
+      );
+    }
+    for (var i = paired; i < expectedGap.length; i++) {
+      issues.add(
+        _SpeechIssue(
+          type: _SpeechIssueType.missing,
+          expected: expectedGap[i].raw,
+        ),
+      );
+    }
+    for (var i = paired; i < spokenGap.length; i++) {
+      issues.add(
+        _SpeechIssue(type: _SpeechIssueType.extra, actual: spokenGap[i].raw),
+      );
+    }
+  }
+
+  static List<_TokenPair> _longestCommonSubsequence(
+    List<_SpeechToken> expected,
+    List<_SpeechToken> spoken,
+  ) {
+    final rows = expected.length + 1;
+    final cols = spoken.length + 1;
+    final dp = List.generate(rows, (_) => List<int>.filled(cols, 0));
+
+    for (var i = expected.length - 1; i >= 0; i--) {
+      for (var j = spoken.length - 1; j >= 0; j--) {
+        if (expected[i].normalized == spoken[j].normalized) {
+          dp[i][j] = dp[i + 1][j + 1] + 1;
+        } else {
+          dp[i][j] = math.max(dp[i + 1][j], dp[i][j + 1]);
+        }
+      }
+    }
+
+    final pairs = <_TokenPair>[];
+    var i = 0;
+    var j = 0;
+    while (i < expected.length && j < spoken.length) {
+      if (expected[i].normalized == spoken[j].normalized) {
+        pairs.add(_TokenPair(i, j));
+        i++;
+        j++;
+      } else if (dp[i + 1][j] >= dp[i][j + 1]) {
+        i++;
+      } else {
+        j++;
+      }
+    }
+    return pairs;
+  }
+
+  static bool _looksSimilar(String a, String b) {
+    if (a.isEmpty || b.isEmpty) return false;
+    if (a[0] == b[0]) return true;
+    final distance = _levenshtein(a, b);
+    final longest = math.max(a.length, b.length);
+    return longest > 0 && (1 - distance / longest) >= 0.62;
+  }
+
+  static int _levenshtein(String a, String b) {
+    final previous = List<int>.generate(b.length + 1, (i) => i);
+    final current = List<int>.filled(b.length + 1, 0);
+    for (var i = 1; i <= a.length; i++) {
+      current[0] = i;
+      for (var j = 1; j <= b.length; j++) {
+        final cost = a[i - 1] == b[j - 1] ? 0 : 1;
+        current[j] = math.min(
+          math.min(current[j - 1] + 1, previous[j] + 1),
+          previous[j - 1] + cost,
+        );
+      }
+      for (var j = 0; j <= b.length; j++) {
+        previous[j] = current[j];
+      }
+    }
+    return previous[b.length];
+  }
+}
+
+class _SpeechToken {
+  final String raw;
+  final String normalized;
+
+  const _SpeechToken(this.raw, this.normalized);
+
+  static List<_SpeechToken> tokenize(String text) {
+    final matches = RegExp(
+      r"[\p{L}\p{N}]+(?:['’][\p{L}\p{N}]+)?",
+      unicode: true,
+    ).allMatches(text);
+    return [
+      for (final match in matches)
+        _SpeechToken(match.group(0)!, match.group(0)!.toLowerCase()),
+    ];
+  }
+}
+
+class _TokenPair {
+  final int expectedIndex;
+  final int spokenIndex;
+
+  const _TokenPair(this.expectedIndex, this.spokenIndex);
 }
 
 class _ScriptTurn {

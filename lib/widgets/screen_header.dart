@@ -10,6 +10,7 @@ class ScreenHeader extends StatelessWidget {
   final String? subtitle;
   final VoidCallback? onAvatarTap;
   final EdgeInsetsGeometry? margin;
+  final Widget? trailing;
 
   const ScreenHeader({
     super.key,
@@ -17,6 +18,7 @@ class ScreenHeader extends StatelessWidget {
     this.subtitle,
     this.onAvatarTap,
     this.margin,
+    this.trailing,
   });
 
   @override
@@ -55,10 +57,11 @@ class ScreenHeader extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(width: 12),
-                NotificationsBellButton(
-                  iconColor: c.textHeading,
-                  iconSize: 26,
-                ),
+                trailing ??
+                    NotificationsBellButton(
+                      iconColor: c.textHeading,
+                      iconSize: 26,
+                    ),
               ],
             ),
           ),

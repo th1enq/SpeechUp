@@ -2,16 +2,16 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../theme/app_colors.dart';
 
-/// A hand-drawn style button — wobbly oval, hard offset shadow, presses flat.
-class SketchButton extends StatefulWidget {
+/// Production button with explicit pressed, loading, and disabled states.
+class AppPrimaryButton extends StatefulWidget {
   final String text;
-  final VoidCallback onPressed;
+  final VoidCallback? onPressed;
   final Widget? icon;
   final bool isFullWidth;
   final bool isLoading;
-  final bool isSecondary; // muted bg, blue hover
+  final bool isSecondary;
 
-  const SketchButton({
+  const AppPrimaryButton({
     super.key,
     required this.text,
     required this.onPressed,
@@ -22,81 +22,96 @@ class SketchButton extends StatefulWidget {
   });
 
   @override
-  State<SketchButton> createState() => _SketchButtonState();
+  State<AppPrimaryButton> createState() => _AppPrimaryButtonState();
 }
 
-class _SketchButtonState extends State<SketchButton> {
+class _AppPrimaryButtonState extends State<AppPrimaryButton> {
   bool _isPressed = false;
 
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
-    // Normal: 4px offset shadow; pressed: shadow gone, translate (4,4)
-    final double shadowDx = _isPressed ? 0 : 4;
-    final double shadowDy = _isPressed ? 0 : 4;
-    final double tx = _isPressed ? 4 : 2;
-    final double ty = _isPressed ? 4 : 2;
+    final enabled = widget.onPressed != null && !widget.isLoading;
+    final bg = widget.isSecondary ? c.surfaceBg : c.accentBlue;
+    final disabledBg = c.borderColor.withValues(alpha: 0.55);
+    final foregroundColor = widget.isSecondary ? c.accentBlue : c.textOnAccent;
+    final disabledFg = c.textMuted;
 
-    final Color bg = widget.isSecondary ? c.surfaceBg : c.cardBg;
-    final Color borderColor = widget.isSecondary ? c.accentBlue : c.textHeading;
-    final Color foregroundColor = widget.isSecondary ? c.accentBlue : c.textHeading;
-
-    return GestureDetector(
-      onTapDown: (_) => setState(() => _isPressed = true),
-      onTapUp: (_) {
-        setState(() => _isPressed = false);
-        if (!widget.isLoading) widget.onPressed();
-      },
-      onTapCancel: () => setState(() => _isPressed = false),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 80),
-        curve: Curves.easeOut,
-        transform: Matrix4.translationValues(tx, ty, 0),
-        transformAlignment: Alignment.center,
-        decoration: BoxDecoration(
-          color: bg,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: borderColor, width: 3),
-          boxShadow: [
-            BoxShadow(
-              color: c.shadowColor,
-              offset: Offset(shadowDx, shadowDy),
-              blurRadius: 0,
-            ),
-          ],
-        ),
-        child: Container(
-          width: widget.isFullWidth ? double.infinity : null,
-          padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 14),
-          constraints: const BoxConstraints(minHeight: 50),
-          child: Row(
-            mainAxisSize: widget.isFullWidth ? MainAxisSize.max : MainAxisSize.min,
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              if (widget.isLoading)
-                SizedBox(
-                  width: 20,
-                  height: 20,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 3,
-                    valueColor: AlwaysStoppedAnimation(foregroundColor),
+    return Semantics(
+      button: true,
+      enabled: enabled,
+      child: GestureDetector(
+        onTapDown: enabled ? (_) => setState(() => _isPressed = true) : null,
+        onTapUp: enabled
+            ? (_) {
+                setState(() => _isPressed = false);
+                widget.onPressed?.call();
+              }
+            : null,
+        onTapCancel: enabled ? () => setState(() => _isPressed = false) : null,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 140),
+          curve: Curves.easeOutCubic,
+          transform: Matrix4.translationValues(0, _isPressed ? 1.5 : 0, 0),
+          transformAlignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: enabled ? bg : disabledBg,
+            borderRadius: BorderRadius.circular(16),
+            border: widget.isSecondary
+                ? Border.all(
+                    color: enabled
+                        ? c.accentBlue.withValues(alpha: 0.45)
+                        : c.borderColor,
+                  )
+                : null,
+            boxShadow: [
+              if (enabled && !widget.isSecondary)
+                BoxShadow(
+                  color: c.accentBlue.withValues(
+                    alpha: _isPressed ? 0.14 : 0.26,
                   ),
-                )
-              else ...[
-                Text(
-                  widget.text,
-                  style: GoogleFonts.patrickHand(
-                    fontSize: 17,
-                    fontWeight: FontWeight.w700,
-                    color: foregroundColor,
-                  ),
+                  offset: Offset(0, _isPressed ? 4 : 8),
+                  blurRadius: _isPressed ? 10 : 18,
                 ),
-                if (widget.icon != null) ...[
-                  const SizedBox(width: 8),
-                  widget.icon!,
+            ],
+          ),
+          child: Container(
+            width: widget.isFullWidth ? double.infinity : null,
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+            constraints: const BoxConstraints(minHeight: 52, minWidth: 52),
+            child: Row(
+              mainAxisSize: widget.isFullWidth
+                  ? MainAxisSize.max
+                  : MainAxisSize.min,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                if (widget.isLoading)
+                  SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2.6,
+                      valueColor: AlwaysStoppedAnimation(
+                        enabled ? foregroundColor : disabledFg,
+                      ),
+                    ),
+                  )
+                else ...[
+                  Text(
+                    widget.text,
+                    style: GoogleFonts.plusJakartaSans(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w700,
+                      color: enabled ? foregroundColor : disabledFg,
+                    ),
+                  ),
+                  if (widget.icon != null) ...[
+                    const SizedBox(width: 8),
+                    widget.icon!,
+                  ],
                 ],
               ],
-            ],
+            ),
           ),
         ),
       ),
@@ -105,4 +120,5 @@ class _SketchButtonState extends State<SketchButton> {
 }
 
 /// Backward-compat typedef so all existing `PrimaryButton(...)` calls still work.
-typedef PrimaryButton = SketchButton;
+typedef PrimaryButton = AppPrimaryButton;
+typedef SketchButton = AppPrimaryButton;

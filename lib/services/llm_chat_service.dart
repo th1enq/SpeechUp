@@ -31,6 +31,10 @@ class LlmChatService {
 
   /// Whether the service has valid configuration.
   bool get isConfigured => _apiKey.isNotEmpty;
+  bool get isRateLimited {
+    final until = _rateLimitedUntil;
+    return until != null && DateTime.now().isBefore(until);
+  }
 
   /// The Gemini REST endpoint.
   static const String _model = 'gemini-2.0-flash';
@@ -40,6 +44,7 @@ class LlmChatService {
 
   /// Conversation history for the current session.
   final List<Map<String, dynamic>> _history = [];
+  DateTime? _rateLimitedUntil;
 
   /// System instruction for the current scenario.
   String _systemInstruction = '';
@@ -200,6 +205,11 @@ Yêu cầu:
         'Pass --dart-define=GEMINI_API_KEY=<key> at build time.',
       );
     }
+    if (isRateLimited) {
+      throw const LlmChatException.rateLimited(
+        'Gemini is temporarily rate limited. Please try again later.',
+      );
+    }
 
     // Add user message to history
     _history.add({
@@ -249,8 +259,15 @@ Yêu cầu:
       debugPrint('[LlmChat] ${response.statusCode}: ${response.body}');
       // Remove the failed user message from history
       _history.removeLast();
-      throw Exception(
-        'Gemini API error (${response.statusCode}): ${response.reasonPhrase}',
+      final message = _extractErrorMessage(response.body);
+      if (response.statusCode == 429) {
+        _rateLimitedUntil = DateTime.now().add(const Duration(minutes: 1));
+      }
+      throw LlmChatException(
+        statusCode: response.statusCode,
+        message: message.isEmpty
+            ? 'Gemini API error (${response.statusCode}): ${response.reasonPhrase}'
+            : message,
       );
     }
 
@@ -293,6 +310,7 @@ Yêu cầu:
           : 'Start the conversation. Greet the user and open according to your role. Reply with only 1-2 short sentences.';
       return await sendMessage(prompt);
     } catch (e) {
+      if (e is LlmChatException && e.isRateLimited) rethrow;
       debugPrint('[LlmChat] Opening message failed: $e');
       // Remove the meta-prompt from history so it doesn't pollute the conversation
       _history.clear();
@@ -335,6 +353,17 @@ Yêu cầu:
         return 'Chào mọi người! Bạn có thể bắt đầu bài thuyết trình khi sẵn sàng.';
       default:
         return 'Xin chào! Bạn muốn bắt đầu nói về chủ đề gì?';
+    }
+  }
+
+  String _extractErrorMessage(String body) {
+    try {
+      final data = jsonDecode(body) as Map<String, dynamic>;
+      final error = data['error'] as Map<String, dynamic>?;
+      final message = error?['message'] as String?;
+      return message?.trim() ?? '';
+    } catch (_) {
+      return '';
     }
   }
 
@@ -441,6 +470,20 @@ Yêu cầu:
 
   /// Get the conversation history for saving.
   List<Map<String, dynamic>> get historyForSave => List.unmodifiable(_history);
+}
+
+class LlmChatException implements Exception {
+  final int? statusCode;
+  final String message;
+
+  const LlmChatException({required this.statusCode, required this.message});
+
+  const LlmChatException.rateLimited(this.message) : statusCode = 429;
+
+  bool get isRateLimited => statusCode == 429;
+
+  @override
+  String toString() => message;
 }
 
 /// Summary of a completed conversation session.

@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
@@ -28,11 +27,24 @@ class AzurePronunciationService {
 
   AzurePronunciationService._internal();
 
-  // Keys injected via --dart-define
-  static const String _apiKey =
-      String.fromEnvironment('AZURE_SPEECH_KEY', defaultValue: '');
-  static const String _region =
-      String.fromEnvironment('AZURE_SPEECH_REGION', defaultValue: '');
+  // Keys injected via --dart-define or --dart-define-from-file=.env.
+  static const String _azureSpeechKey = String.fromEnvironment(
+    'AZURE_SPEECH_KEY',
+    defaultValue: '',
+  );
+  static const String _azureSpeechRegion = String.fromEnvironment(
+    'AZURE_SPEECH_REGION',
+    defaultValue: '',
+  );
+  static const String _key1 = String.fromEnvironment('KEY_1', defaultValue: '');
+  static const String _regionAlias = String.fromEnvironment(
+    'REGION',
+    defaultValue: '',
+  );
+
+  String get _apiKey => _azureSpeechKey.isNotEmpty ? _azureSpeechKey : _key1;
+  String get _region =>
+      _azureSpeechRegion.isNotEmpty ? _azureSpeechRegion : _regionAlias;
 
   /// Whether the service has valid configuration.
   bool get isConfigured => _apiKey.isNotEmpty && _region.isNotEmpty;
@@ -70,10 +82,14 @@ class AzurePronunciationService {
       'Dimension': 'Comprehensive',
       'EnableProsodyAssessment': true,
     };
-    final configBase64 =
-        base64Encode(utf8.encode(jsonEncode(assessmentConfig)));
+    final configBase64 = base64Encode(
+      utf8.encode(jsonEncode(assessmentConfig)),
+    );
 
     final uri = Uri.parse('$_endpoint?language=$language&format=detailed');
+    debugPrint(
+      '[AzurePronunciation] POST $uri | audioBodyBytes=${audioBytes.length} | referenceTextInAssessmentHeader="$referenceText"',
+    );
 
     final response = await http.post(
       uri,
@@ -85,6 +101,10 @@ class AzurePronunciationService {
       },
       body: audioBytes,
     );
+    debugPrint(
+      '[AzurePronunciation] response status=${response.statusCode} bytes=${response.bodyBytes.length}',
+    );
+    debugPrint('[AzurePronunciation] response body=${response.body}');
 
     if (response.statusCode != 200) {
       debugPrint(
@@ -97,11 +117,15 @@ class AzurePronunciationService {
     }
 
     final json = jsonDecode(response.body) as Map<String, dynamic>;
-
-    return PronunciationResult.fromAzureJson(
+    final result = PronunciationResult.fromAzureJson(
       json,
       referenceText: referenceText,
     );
+    debugPrint(
+      '[AzurePronunciation] recognized="${result.recognizedText}" accuracy=${result.accuracyScore} fluency=${result.fluencyScore} completeness=${result.completenessScore} overall=${result.overallScore.toStringAsFixed(1)}',
+    );
+
+    return result;
   }
 
   /// Quick health-check: sends a tiny silent WAV to verify credentials.
@@ -115,11 +139,7 @@ class AzurePronunciationService {
       wav.setAll(0, wavHeader);
       wav.setAll(wavHeader.length, silence);
 
-      await assess(
-        audioBytes: wav,
-        referenceText: 'test',
-        language: 'en-US',
-      );
+      await assess(audioBytes: wav, referenceText: 'test', language: 'en-US');
       return true;
     } catch (_) {
       return false;

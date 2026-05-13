@@ -60,7 +60,9 @@ class SpeechInputService extends ChangeNotifier {
       _isAvailable = false;
       _isInitialized = false; // Allow retry
       _setError(_mapPlatformException(error));
-      debugPrint('[SpeechInput] PlatformException: ${error.code} - ${error.message}');
+      debugPrint(
+        '[SpeechInput] PlatformException: ${error.code} - ${error.message}',
+      );
       notifyListeners();
       return false;
     } catch (e) {
@@ -74,8 +76,10 @@ class SpeechInputService extends ChangeNotifier {
 
     if (!_isAvailable) {
       _isInitialized = false; // Allow retry
-      _setError('Speech recognition is unavailable on this device. '
-          'Make sure Google App is installed and microphone permission is granted.');
+      _setError(
+        'Speech recognition is unavailable on this device. '
+        'Make sure Google App is installed and microphone permission is granted.',
+      );
     } else if (localeId != null) {
       final matchedLocale = await resolveLocaleId(localeId);
       if (matchedLocale == null) {
@@ -155,15 +159,16 @@ class SpeechInputService extends ChangeNotifier {
       ),
     );
 
-    _isListening = didStart;
-    if (!didStart) {
+    final started = didStart == true;
+    _isListening = started;
+    if (!started) {
       _durationTicker?.cancel();
       _durationTicker = null;
       _startedAt = null;
       _setError('Unable to start microphone listening.');
     }
     notifyListeners();
-    return didStart;
+    return started;
   }
 
   Future<void> stopListening() async {
