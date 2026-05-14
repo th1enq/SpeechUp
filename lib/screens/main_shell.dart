@@ -9,7 +9,7 @@ import '../theme/app_colors.dart';
 import 'home_screen.dart';
 import 'practice_screen.dart';
 import 'conversation_screen.dart';
-import 'progress_screen.dart';
+import 'social_screen.dart';
 import 'profile_screen.dart';
 
 class MainShell extends StatefulWidget {
@@ -280,7 +280,7 @@ class _MainShellState extends State<MainShell> {
               setState(() => _pendingChatTopic = null);
             },
           ),
-          const ProgressScreen(),
+          const SocialScreen(),
           const ProfileScreen(),
         ],
       ),
@@ -341,9 +341,9 @@ class _MainShellState extends State<MainShell> {
                   label: t('nav.chat'),
                 ),
                 NavigationDestination(
-                  icon: const Icon(Icons.show_chart_rounded),
-                  selectedIcon: const Icon(Icons.show_chart_rounded),
-                  label: t('nav.progress'),
+                  icon: const Icon(Icons.groups_2_rounded),
+                  selectedIcon: const Icon(Icons.groups_2_rounded),
+                  label: t('nav.social'),
                 ),
                 NavigationDestination(
                   icon: const Icon(Icons.person_rounded),

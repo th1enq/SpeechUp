@@ -145,27 +145,48 @@ class SpeechInputService extends ChangeNotifier {
       notifyListeners();
     });
 
-    final didStart = await _speech.listen(
-      onResult: _handleResult,
-      localeId: resolvedLocale,
-      listenFor: listenFor,
-      pauseFor: pauseFor,
-      onSoundLevelChange: _handleSoundLevel,
-      listenOptions: SpeechListenOptions(
-        listenMode: ListenMode.dictation,
-        partialResults: true,
-        cancelOnError: true,
-        autoPunctuation: true,
-      ),
-    );
+    bool didStart;
+    try {
+      didStart = await _speech.listen(
+        onResult: _handleResult,
+        localeId: resolvedLocale,
+        listenFor: listenFor,
+        pauseFor: pauseFor,
+        onSoundLevelChange: _handleSoundLevel,
+        listenOptions: SpeechListenOptions(
+          listenMode: ListenMode.dictation,
+          partialResults: true,
+          cancelOnError: true,
+          autoPunctuation: true,
+        ),
+      );
+    } on PlatformException catch (error) {
+      didStart = false;
+      _setError(_mapPlatformException(error));
+      debugPrint(
+        '[SpeechInput] Listen PlatformException: ${error.code} - ${error.message}',
+      );
+    } catch (e) {
+      didStart = false;
+      _setError('Unable to start microphone listening.');
+      debugPrint('[SpeechInput] Listen error: $e');
+    }
 
-    final started = didStart == true;
+    if (!didStart) {
+      // Some Android recognizers report the listening status asynchronously even
+      // when the plugin start call returns false.
+      await Future<void>.delayed(const Duration(milliseconds: 250));
+    }
+
+    final started = didStart || _speech.isListening || _isListening;
     _isListening = started;
     if (!started) {
       _durationTicker?.cancel();
       _durationTicker = null;
       _startedAt = null;
-      _setError('Unable to start microphone listening.');
+      if (_lastError == null || _lastError!.isEmpty) {
+        _setError('Unable to start microphone listening.');
+      }
     }
     notifyListeners();
     return started;
@@ -212,6 +233,7 @@ class SpeechInputService extends ChangeNotifier {
   void _handleStatus(String status) {
     if (status == 'listening') {
       _isListening = true;
+      _lastError = null;
       notifyListeners();
       return;
     }

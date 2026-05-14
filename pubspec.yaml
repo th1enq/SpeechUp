@@ -39,3 +39,4 @@ flutter:
   assets:
     - assets/images/logo.png
     - assets/images/onboarding_welcome_hero.png
+    - assets/audio/score_pickup.wav

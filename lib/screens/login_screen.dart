@@ -197,10 +197,11 @@ class _LoginScreenState extends State<LoginScreen> {
     });
 
     try {
-      await _authService.signInWithEmail(
+      final credential = await _authService.signInWithEmail(
         _emailController.text.trim(),
         _passwordController.text,
       );
+      await _ensureUserProfile(credential.user!);
       widget.onLoginSuccess();
     } catch (e) {
       setState(() => _errorMessage = 'Tài khoản hoặc mật khẩu không đúng');

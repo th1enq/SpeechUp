@@ -3,6 +3,84 @@ import 'package:flutter/foundation.dart' show debugPrint;
 import '../models/user_profile.dart';
 import '../models/practice_session.dart';
 
+enum SocialConnectionStatus { pending, accepted }
+
+class SocialConnection {
+  final String id;
+  final List<String> userIds;
+  final String requesterId;
+  final String receiverId;
+  final SocialConnectionStatus status;
+  final DateTime createdAt;
+  final DateTime updatedAt;
+
+  const SocialConnection({
+    required this.id,
+    required this.userIds,
+    required this.requesterId,
+    required this.receiverId,
+    required this.status,
+    required this.createdAt,
+    required this.updatedAt,
+  });
+
+  bool involves(String uid) => userIds.contains(uid);
+  bool get isAccepted => status == SocialConnectionStatus.accepted;
+  bool isIncomingFor(String uid) => receiverId == uid && !isAccepted;
+  bool isOutgoingFor(String uid) => requesterId == uid && !isAccepted;
+
+  String otherUserId(String uid) =>
+      userIds.firstWhere((id) => id != uid, orElse: () => '');
+
+  factory SocialConnection.fromFirestore(DocumentSnapshot doc) {
+    final data = doc.data() as Map<String, dynamic>;
+    final rawStatus = (data['status'] ?? 'pending').toString();
+    return SocialConnection(
+      id: doc.id,
+      userIds: (data['userIds'] as List? ?? const [])
+          .map((value) => value.toString())
+          .toList(),
+      requesterId: (data['requesterId'] ?? '').toString(),
+      receiverId: (data['receiverId'] ?? '').toString(),
+      status: rawStatus == 'accepted'
+          ? SocialConnectionStatus.accepted
+          : SocialConnectionStatus.pending,
+      createdAt: (data['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
+      updatedAt: (data['updatedAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
+    );
+  }
+}
+
+class SocialVoiceMessage {
+  final String id;
+  final String senderId;
+  final String audioBase64;
+  final String mimeType;
+  final int durationMs;
+  final DateTime createdAt;
+
+  const SocialVoiceMessage({
+    required this.id,
+    required this.senderId,
+    required this.audioBase64,
+    required this.mimeType,
+    required this.durationMs,
+    required this.createdAt,
+  });
+
+  factory SocialVoiceMessage.fromFirestore(DocumentSnapshot doc) {
+    final data = doc.data() as Map<String, dynamic>;
+    return SocialVoiceMessage(
+      id: doc.id,
+      senderId: (data['senderId'] ?? '').toString(),
+      audioBase64: (data['audioBase64'] ?? '').toString(),
+      mimeType: (data['mimeType'] ?? 'audio/mp4').toString(),
+      durationMs: (data['durationMs'] ?? 0) as int,
+      createdAt: (data['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
+    );
+  }
+}
+
 class FirestoreService {
   static const int dailyStreakGoalSeconds = 5 * 60;
   static const int maxDailyGoalSeconds = 30 * 60;
@@ -55,6 +133,120 @@ class FirestoreService {
     return _db.collection('users').doc(uid).snapshots().map((doc) {
       if (!doc.exists) return null;
       return UserProfile.fromFirestore(doc);
+    });
+  }
+
+  // ─── Social Connections ─────────────────────────────────────
+
+  String socialConnectionIdFor(String uidA, String uidB) {
+    final ids = [uidA, uidB]..sort();
+    return '${ids[0]}_${ids[1]}';
+  }
+
+  Stream<List<UserProfile>> streamSocialUsers(String currentUid) {
+    return _db
+        .collection('users')
+        .limit(80)
+        .snapshots()
+        .map(
+          (snapshot) =>
+              snapshot.docs
+                  .where((doc) => doc.id != currentUid)
+                  .map((doc) => UserProfile.fromFirestore(doc))
+                  .toList()
+                ..sort(
+                  (a, b) => a.displayName.toLowerCase().compareTo(
+                    b.displayName.toLowerCase(),
+                  ),
+                ),
+        );
+  }
+
+  Stream<List<SocialConnection>> streamSocialConnections(String uid) {
+    return _db
+        .collection('social_connections')
+        .where('userIds', arrayContains: uid)
+        .snapshots()
+        .map(
+          (snapshot) =>
+              snapshot.docs
+                  .map((doc) => SocialConnection.fromFirestore(doc))
+                  .toList()
+                ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt)),
+        );
+  }
+
+  Future<void> sendConnectionRequest({
+    required UserProfile requester,
+    required UserProfile receiver,
+  }) async {
+    final connectionId = socialConnectionIdFor(requester.uid, receiver.uid);
+    final ref = _db.collection('social_connections').doc(connectionId);
+    final now = FieldValue.serverTimestamp();
+    final userIds = [requester.uid, receiver.uid]..sort();
+    await ref.set({
+      'userIds': userIds,
+      'requesterId': requester.uid,
+      'requesterName': requester.displayName,
+      'receiverId': receiver.uid,
+      'receiverName': receiver.displayName,
+      'status': 'pending',
+      'createdAt': now,
+      'updatedAt': now,
+    }, SetOptions(merge: true));
+  }
+
+  Future<void> acceptConnectionRequest(String connectionId) async {
+    await _db.collection('social_connections').doc(connectionId).update({
+      'status': 'accepted',
+      'updatedAt': FieldValue.serverTimestamp(),
+      'acceptedAt': FieldValue.serverTimestamp(),
+    });
+  }
+
+  Future<void> declineConnectionRequest(String connectionId) async {
+    await _db.collection('social_connections').doc(connectionId).delete();
+  }
+
+  Stream<List<SocialVoiceMessage>> streamVoiceMessages(String connectionId) {
+    return _db
+        .collection('social_connections')
+        .doc(connectionId)
+        .collection('voice_messages')
+        .orderBy('createdAt', descending: false)
+        .limit(80)
+        .snapshots()
+        .map(
+          (snapshot) => snapshot.docs
+              .map((doc) => SocialVoiceMessage.fromFirestore(doc))
+              .toList(),
+        );
+  }
+
+  Future<void> sendVoiceMessage({
+    required String connectionId,
+    required String senderId,
+    required String audioBase64,
+    required String mimeType,
+    required int durationMs,
+  }) async {
+    final trimmedAudio = audioBase64.trim();
+    if (trimmedAudio.isEmpty) return;
+    final connectionRef = _db
+        .collection('social_connections')
+        .doc(connectionId);
+    await connectionRef.collection('voice_messages').add({
+      'senderId': senderId,
+      'audioBase64': trimmedAudio,
+      'mimeType': mimeType,
+      'durationMs': durationMs,
+      'createdAt': FieldValue.serverTimestamp(),
+    });
+    await connectionRef.update({
+      'lastMessage': 'Voice message',
+      'lastMessageSenderId': senderId,
+      'lastMessageAt': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
     });
   }
 
