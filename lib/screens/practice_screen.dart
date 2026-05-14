@@ -1939,9 +1939,34 @@ class _RecordingScreenState extends State<_RecordingScreen> {
     final didStart = await _speechService.startListening(
       localeId: _localeIdForApp(),
     );
+    if (!didStart && await _startNativeSpeechFallback()) {
+      return;
+    }
     if (!didStart && mounted) {
+      await _discardAssessmentRecording();
       setState(() {});
     }
+  }
+
+  Future<bool> _startNativeSpeechFallback() async {
+    if (!_nativeSpeechService.isSupportedPlatform) return false;
+
+    final nativeOk = await _nativeSpeechService.initialize();
+    if (!nativeOk) return false;
+
+    _speechService.resetSession();
+    _nativeSpeechService.resetSession();
+    _lastSpeechError = null;
+    final didStart = await _nativeSpeechService.startListening(
+      locale: appLanguage.speechLanguageCode,
+    );
+    if (!didStart) return false;
+
+    _useNativeSpeech = true;
+    _useCloudSpeech = false;
+    _startFallbackElapsed();
+    if (mounted) setState(() {});
+    return true;
   }
 
   Future<void> _stopAndAnalyze() async {
@@ -2053,6 +2078,22 @@ class _RecordingScreenState extends State<_RecordingScreen> {
     }
   }
 
+  Future<void> _discardAssessmentRecording() async {
+    try {
+      final path = await _assessmentRecorder.isRecording()
+          ? await _assessmentRecorder.stop()
+          : _assessmentAudioPath;
+      _assessmentAudioPath = null;
+      if (path == null || path.isEmpty) return;
+      final file = File(path);
+      if (await file.exists()) {
+        await file.delete().catchError((_) => file);
+      }
+    } catch (_) {
+      _assessmentAudioPath = null;
+    }
+  }
+
   Future<void> _savePracticeSession({
     required String transcript,
     required int durationSeconds,
@@ -2111,6 +2152,7 @@ class _RecordingScreenState extends State<_RecordingScreen> {
 
   void _handleSpeechUpdate() {
     if (!mounted) return;
+    if (_useNativeSpeech || _useCloudSpeech) return;
     final error = _speechService.lastError;
     if (error != null &&
         error.isNotEmpty &&

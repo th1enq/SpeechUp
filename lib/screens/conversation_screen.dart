@@ -559,6 +559,7 @@ class _ConversationChatState extends State<_ConversationChat> {
   final GoogleTtsService _ttsService = GoogleTtsService();
   final LocalTtsService _localTtsService = LocalTtsService();
   final AudioPlayer _ttsPlayer = AudioPlayer();
+  final AudioPlayer _scorePlayer = AudioPlayer();
   String? _lastSpeechError;
   final ScrollController _scrollController = ScrollController();
   final LlmChatService _llmService = LlmChatService();
@@ -573,6 +574,10 @@ class _ConversationChatState extends State<_ConversationChat> {
   bool _useAzureOnlySpeech = false;
   bool _isAssessingPronunciation = false;
   bool _didShowOverallPronunciationSummary = false;
+  int _scoreTotal = 0;
+  int _scoreCombo = 0;
+  int _scoreEventSerial = 0;
+  _ScoreEvent? _latestScoreEvent;
   String? _assessmentAudioPath;
   bool get _isCustomScenario =>
       widget.customPrompt != null && widget.customPrompt!.trim().isNotEmpty;
@@ -898,18 +903,17 @@ class _ConversationChatState extends State<_ConversationChat> {
     final fluency = avg((result) => result.fluencyScore);
     final completeness = avg((result) => result.completenessScore);
     final overall = avg((result) => result.overallScore);
-    final vi = appLanguage.locale.languageCode == 'vi';
-    final summary = vi
-        ? 'Tổng kết phát âm: ${overall.round()}/100. Độ đúng ${accuracy.round()}, độ trôi chảy ${fluency.round()}, độ hoàn thành câu ${completeness.round()}. Bạn đã hoàn thành hội thoại, hãy tiếp tục luyện đều nhé.'
-        : 'Pronunciation summary: ${overall.round()}/100. Accuracy ${accuracy.round()}, fluency ${fluency.round()}, completeness ${completeness.round()}. You completed the conversation. Keep practicing consistently.';
-
-    setState(() {
-      _messages.add(
-        _ChatMessage(text: summary, isUser: false, assessment: null),
+    Future.delayed(const Duration(milliseconds: 1200), () {
+      if (!mounted) return;
+      _showScoreEvent(
+        score: overall.round(),
+        accuracy: accuracy.round(),
+        fluency: fluency.round(),
+        completeness: completeness.round(),
+        shouldRetry: false,
+        isFinal: true,
       );
     });
-    _scrollToBottom();
-    unawaited(_speakAiMessage(summary));
   }
 
   Future<void> _toggleRecording() async {
@@ -1043,6 +1047,9 @@ class _ConversationChatState extends State<_ConversationChat> {
       listenFor: const Duration(seconds: 45),
       pauseFor: const Duration(seconds: 3),
     );
+    if (!didStart && await _startNativeSpeechFallback()) {
+      return;
+    }
     if (!didStart && mounted) {
       await _discardAssessmentRecording();
       if (!mounted) return;
@@ -1055,6 +1062,31 @@ class _ConversationChatState extends State<_ConversationChat> {
         ),
       );
     }
+  }
+
+  Future<bool> _startNativeSpeechFallback() async {
+    if (!_nativeSpeechService.isSupportedPlatform) return false;
+
+    final nativeOk = await _nativeSpeechService.initialize();
+    if (!nativeOk) return false;
+
+    _speechService.resetSession();
+    _nativeSpeechService.resetSession();
+    _lastSpeechError = null;
+    final didStart = await _nativeSpeechService.startListening(
+      locale: appLanguage.speechLanguageCode,
+    );
+    if (!didStart) return false;
+
+    if (mounted) {
+      setState(() {
+        _useNativeSpeech = true;
+        _useCloudSpeech = false;
+        _isUserRecording = true;
+      });
+    }
+    debugPrint('[Conversation] Fallback native speech recording started');
+    return true;
   }
 
   void _scrollToBottom() {
@@ -1131,6 +1163,7 @@ class _ConversationChatState extends State<_ConversationChat> {
     unawaited(_cloudSpeechService.cancelListening());
     unawaited(_stopAiVoice());
     _ttsPlayer.dispose();
+    _scorePlayer.dispose();
     _localTtsService.stop();
     _assessmentRecorder.dispose();
     _scrollController.dispose();
@@ -1297,6 +1330,11 @@ class _ConversationChatState extends State<_ConversationChat> {
                   ),
                 ],
               ),
+            ),
+          if (_latestScoreEvent != null)
+            _ScoreRewardPanel(
+              key: ValueKey(_latestScoreEvent!.serial),
+              event: _latestScoreEvent!,
             ),
           // ── Text input area (shown when mic unavailable) ──
           if (_showTextInput)
@@ -1473,6 +1511,75 @@ class _ConversationChatState extends State<_ConversationChat> {
     );
   }
 
+  void _showScoreEvent({
+    required int score,
+    required int accuracy,
+    required int fluency,
+    required int completeness,
+    required bool shouldRetry,
+    bool isFinal = false,
+  }) {
+    final normalizedScore = score.clamp(0, 100).toInt();
+    final earnedPoints =
+        (isFinal
+                ? math.max(25, normalizedScore * 2)
+                : shouldRetry
+                ? math.max(8, (normalizedScore * 0.45).round())
+                : math.max(15, normalizedScore))
+            .toInt();
+
+    if (!shouldRetry && !isFinal && normalizedScore >= 70) {
+      _scoreCombo++;
+    } else if (shouldRetry) {
+      _scoreCombo = 0;
+    }
+
+    setState(() {
+      _scoreTotal += earnedPoints;
+      _latestScoreEvent = _ScoreEvent(
+        serial: ++_scoreEventSerial,
+        points: earnedPoints,
+        score: normalizedScore,
+        accuracy: accuracy.clamp(0, 100).toInt(),
+        fluency: fluency.clamp(0, 100).toInt(),
+        completeness: completeness.clamp(0, 100).toInt(),
+        total: _scoreTotal,
+        combo: _scoreCombo,
+        shouldRetry: shouldRetry,
+        isFinal: isFinal,
+      );
+    });
+    unawaited(_playScoreSound());
+  }
+
+  void _showScoreFromAssessment(
+    _SpeechAssessment assessment, {
+    required bool shouldRetry,
+  }) {
+    final azure = assessment.azureResult;
+    _showScoreEvent(
+      score: assessment.accuracy,
+      accuracy: azure?.accuracyScore.round() ?? assessment.accuracy,
+      fluency: azure?.fluencyScore.round() ?? assessment.accuracy,
+      completeness:
+          azure?.completenessScore.round() ??
+          ((assessment.matchedWords / math.max(1, assessment.expectedWords)) *
+                  100)
+              .round(),
+      shouldRetry: shouldRetry,
+    );
+  }
+
+  Future<void> _playScoreSound() async {
+    try {
+      await _scorePlayer.stop();
+      await _scorePlayer.setVolume(0.78);
+      await _scorePlayer.play(AssetSource('audio/score_pickup.wav'));
+    } catch (e) {
+      debugPrint('[Conversation] Score sound failed: $e');
+    }
+  }
+
   /// Returns the currently recognized text from whichever speech service is active.
   String get _activeRecognizedText {
     if (_useAzureOnlySpeech) return '';
@@ -1483,7 +1590,7 @@ class _ConversationChatState extends State<_ConversationChat> {
 
   void _handleSpeechUpdate() {
     if (!mounted) return;
-    if (_useAzureOnlySpeech) return;
+    if (_useAzureOnlySpeech || _useNativeSpeech || _useCloudSpeech) return;
     final isListening = _speechService.isListening;
     final error = _speechService.lastError;
     final justFinishedRecording = _isUserRecording && !isListening;
@@ -1620,17 +1727,10 @@ class _ConversationChatState extends State<_ConversationChat> {
               ? 'Azure không nhận dạng được câu người dùng đọc'
               : 'Azure could not recognize the user sentence');
     final shouldRetry = _shouldRetryPronunciation(azureResult);
-    final feedback = _pronunciationTurnFeedback(
-      azureResult,
-      shouldRetry: shouldRetry,
-    );
 
     setState(() {
       _messages.add(
         _ChatMessage(text: displayedSpokenText, isUser: true, assessment: null),
-      );
-      _messages.add(
-        _ChatMessage(text: feedback, isUser: false, assessment: null),
       );
       if (shouldRetry) {
         _currentUserPrompt = expected.text;
@@ -1640,9 +1740,15 @@ class _ConversationChatState extends State<_ConversationChat> {
         _currentUserPrompt = null;
       }
     });
+    _showScoreEvent(
+      score: azureResult.overallScore.round(),
+      accuracy: azureResult.accuracyScore.round(),
+      fluency: azureResult.fluencyScore.round(),
+      completeness: azureResult.completenessScore.round(),
+      shouldRetry: shouldRetry,
+    );
     _scrollToBottom();
 
-    await _speakAndPause(feedback);
     if (!mounted || shouldRetry) return;
     Future.delayed(const Duration(milliseconds: 250), () {
       if (mounted) _pushNextAiTurn();
@@ -1653,41 +1759,6 @@ class _ConversationChatState extends State<_ConversationChat> {
     return result.overallScore < 60 ||
         result.accuracyScore < 55 ||
         result.completenessScore < 60;
-  }
-
-  String _pronunciationTurnFeedback(
-    PronunciationResult result, {
-    required bool shouldRetry,
-  }) {
-    final vi = appLanguage.locale.languageCode == 'vi';
-    final overall = result.overallScore.round();
-    final details = vi
-        ? 'Điểm câu này: $overall/100. Độ đúng ${result.accuracyScore.round()}, độ trôi chảy ${result.fluencyScore.round()}, độ đủ câu ${result.completenessScore.round()}.'
-        : 'Sentence score: $overall/100. Accuracy ${result.accuracyScore.round()}, fluency ${result.fluencyScore.round()}, completeness ${result.completenessScore.round()}.';
-    if (shouldRetry) {
-      return vi
-          ? '$details Câu này chưa ổn, bạn hãy đọc lại cùng câu mẫu một lần nữa nhé.'
-          : '$details This attempt needs more work. Please read the same prompt again.';
-    }
-    if (overall >= 88) {
-      return vi
-          ? '$details Bạn làm tốt lắm, phát âm rất rõ. Hãy tiếp tục phát huy. Chúng ta tiếp tục nhé.'
-          : '$details Great job, your pronunciation was clear. Keep it up. Let us continue.';
-    }
-    if (overall >= 70) {
-      return vi
-          ? '$details Bạn nói khá tốt rồi. Hãy chậm lại một chút ở các từ khó. Chúng ta tiếp tục nhé.'
-          : '$details Good attempt. Slow down a little on difficult words. Let us continue.';
-    }
-    return vi
-        ? '$details Mình nghe được ý chính rồi. Hãy thử nói rõ từng từ hơn ở lượt tiếp theo. Chúng ta tiếp tục nhé.'
-        : '$details I understood the main idea. Try to pronounce each word more clearly next time. Let us continue.';
-  }
-
-  Future<void> _speakAndPause(String text) async {
-    await _speakAiMessage(text);
-    final estimatedMs = (text.length * 95).clamp(2200, 9000);
-    await Future.delayed(Duration(milliseconds: estimatedMs));
   }
 
   Future<_SpeechAssessment> _buildSpeechAssessment({
@@ -1824,13 +1895,20 @@ class _ConversationChatState extends State<_ConversationChat> {
       await _discardAssessmentRecording();
       return;
     }
-    await _buildSpeechAssessment(expectedText: expected.text, spokenText: text);
+    final assessment = await _buildSpeechAssessment(
+      expectedText: expected.text,
+      spokenText: text,
+    );
+    if (assessment.azureResult != null) {
+      _turnPronunciationResults.add(assessment.azureResult!);
+    }
 
     setState(() {
       _messages.add(_ChatMessage(text: text, isUser: true, assessment: null));
       _nextTurnIndex++;
       _currentUserPrompt = null;
     });
+    _showScoreFromAssessment(assessment, shouldRetry: false);
     _scrollToBottom();
 
     Future.delayed(const Duration(milliseconds: 500), () {
@@ -1874,10 +1952,13 @@ class _ConversationChatState extends State<_ConversationChat> {
       await _discardAssessmentRecording();
       return;
     }
-    await _buildSpeechAssessment(
+    final assessment = await _buildSpeechAssessment(
       expectedText: expected.text,
       spokenText: transcript,
     );
+    if (assessment.azureResult != null) {
+      _turnPronunciationResults.add(assessment.azureResult!);
+    }
 
     setState(() {
       _messages.add(
@@ -1886,6 +1967,7 @@ class _ConversationChatState extends State<_ConversationChat> {
       _nextTurnIndex++;
       _currentUserPrompt = null;
     });
+    _showScoreFromAssessment(assessment, shouldRetry: false);
     _speechService.resetSession();
     _scrollToBottom();
 
@@ -2088,6 +2170,275 @@ class _ConversationChatState extends State<_ConversationChat> {
       voiceName = 'vi-VN-Standard-A';
     }
     return (voiceName: voiceName, speed: speed);
+  }
+}
+
+class _ScoreEvent {
+  final int serial;
+  final int points;
+  final int score;
+  final int accuracy;
+  final int fluency;
+  final int completeness;
+  final int total;
+  final int combo;
+  final bool shouldRetry;
+  final bool isFinal;
+
+  const _ScoreEvent({
+    required this.serial,
+    required this.points,
+    required this.score,
+    required this.accuracy,
+    required this.fluency,
+    required this.completeness,
+    required this.total,
+    required this.combo,
+    required this.shouldRetry,
+    required this.isFinal,
+  });
+}
+
+class _ScoreRewardPanel extends StatelessWidget {
+  final _ScoreEvent event;
+
+  const _ScoreRewardPanel({super.key, required this.event});
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    final base = GoogleFonts.plusJakartaSans();
+    final vi = appLanguage.locale.languageCode == 'vi';
+    final color = event.shouldRetry
+        ? c.feedbackWarning
+        : event.score >= 85
+        ? c.feedbackGood
+        : event.score >= 65
+        ? c.accentBlue
+        : c.feedbackAttention;
+    final title = event.isFinal
+        ? (vi ? 'HOÀN THÀNH' : 'COMPLETE')
+        : event.shouldRetry
+        ? (vi ? 'THỬ LẠI' : 'RETRY')
+        : event.score >= 85
+        ? (vi ? 'COMBO ĐẸP' : 'CLEAN COMBO')
+        : (vi ? 'ĂN ĐIỂM' : 'SCORE UP');
+
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: 0, end: 1),
+      duration: const Duration(milliseconds: 520),
+      curve: Curves.easeOutBack,
+      builder: (context, value, child) {
+        final opacity = value.clamp(0.0, 1.0);
+        return Opacity(
+          opacity: opacity,
+          child: Transform.translate(
+            offset: Offset(0, (1 - opacity) * 18),
+            child: Transform.scale(scale: 0.94 + opacity * 0.06, child: child),
+          ),
+        );
+      },
+      child: Container(
+        width: double.infinity,
+        margin: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: [
+              color.withValues(alpha: 0.18),
+              c.cardBg,
+              c.accentPurple.withValues(alpha: 0.10),
+            ],
+          ),
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: color.withValues(alpha: 0.35)),
+          boxShadow: [
+            BoxShadow(
+              color: color.withValues(alpha: 0.18),
+              blurRadius: 18,
+              offset: const Offset(0, 8),
+            ),
+          ],
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              children: [
+                Container(
+                  width: 42,
+                  height: 42,
+                  decoration: BoxDecoration(
+                    color: color.withValues(alpha: 0.16),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(
+                    event.isFinal
+                        ? Icons.emoji_events_rounded
+                        : event.shouldRetry
+                        ? Icons.replay_rounded
+                        : Icons.bolt_rounded,
+                    color: color,
+                    size: 24,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        title,
+                        style: base.copyWith(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w900,
+                          color: color,
+                          letterSpacing: 0.8,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        event.shouldRetry
+                            ? (vi
+                                  ? 'Giữ câu này và kiếm lại combo'
+                                  : 'Keep this prompt and rebuild combo')
+                            : (vi
+                                  ? 'Tổng điểm ${event.total}'
+                                  : 'Total ${event.total}'),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: base.copyWith(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w800,
+                          color: c.textMuted,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    TweenAnimationBuilder<int>(
+                      tween: IntTween(begin: 0, end: event.points),
+                      duration: const Duration(milliseconds: 620),
+                      curve: Curves.easeOutCubic,
+                      builder: (context, points, _) {
+                        return Text(
+                          '+$points',
+                          style: base.copyWith(
+                            fontSize: 26,
+                            fontWeight: FontWeight.w900,
+                            color: color,
+                            height: 1,
+                          ),
+                        );
+                      },
+                    ),
+                    Text(
+                      event.combo > 1
+                          ? 'x${event.combo}'
+                          : '${event.score}/100',
+                      style: base.copyWith(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w900,
+                        color: c.textHeading,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: _ScoreStatBar(
+                    label: vi ? 'Đúng' : 'Acc',
+                    value: event.accuracy,
+                    color: c.feedbackGood,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: _ScoreStatBar(
+                    label: vi ? 'Trôi' : 'Flow',
+                    value: event.fluency,
+                    color: c.accentBlue,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: _ScoreStatBar(
+                    label: vi ? 'Đủ' : 'Done',
+                    value: event.completeness,
+                    color: c.accentPurple,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ScoreStatBar extends StatelessWidget {
+  final String label;
+  final int value;
+  final Color color;
+
+  const _ScoreStatBar({
+    required this.label,
+    required this.value,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    final base = GoogleFonts.plusJakartaSans();
+    final normalized = value.clamp(0, 100) / 100;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: base.copyWith(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w900,
+                  color: c.textMuted,
+                ),
+              ),
+            ),
+            Text(
+              '$value',
+              style: base.copyWith(
+                fontSize: 10,
+                fontWeight: FontWeight.w900,
+                color: c.textHeading,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 5),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(999),
+          child: LinearProgressIndicator(
+            value: normalized,
+            minHeight: 7,
+            backgroundColor: c.borderColor.withValues(alpha: 0.35),
+            valueColor: AlwaysStoppedAnimation<Color>(color),
+          ),
+        ),
+      ],
+    );
   }
 }
 
