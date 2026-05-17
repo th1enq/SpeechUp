@@ -1,4 +1,7 @@
+import 'dart:convert';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/material.dart' show TimeOfDay;
 import 'package:flutter/foundation.dart' show debugPrint;
 import '../models/user_profile.dart';
 import '../models/practice_session.dart';
@@ -81,6 +84,47 @@ class SocialVoiceMessage {
   }
 }
 
+enum AppNotificationType { general, friendRequest }
+
+class AppNotification {
+  final String id;
+  final String userId;
+  final String title;
+  final String body;
+  final AppNotificationType type;
+  final bool read;
+  final DateTime createdAt;
+  final Map<String, dynamic> data;
+
+  const AppNotification({
+    required this.id,
+    required this.userId,
+    required this.title,
+    required this.body,
+    required this.type,
+    required this.read,
+    required this.createdAt,
+    required this.data,
+  });
+
+  factory AppNotification.fromFirestore(DocumentSnapshot doc) {
+    final data = doc.data() as Map<String, dynamic>;
+    final rawType = (data['type'] ?? 'general').toString();
+    return AppNotification(
+      id: doc.id,
+      userId: (data['userId'] ?? '').toString(),
+      title: (data['title'] ?? '').toString(),
+      body: (data['body'] ?? '').toString(),
+      type: rawType == 'friend_request'
+          ? AppNotificationType.friendRequest
+          : AppNotificationType.general,
+      read: data['read'] == true,
+      createdAt: (data['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
+      data: Map<String, dynamic>.from(data['data'] as Map? ?? const {}),
+    );
+  }
+}
+
 class FirestoreService {
   static const int dailyStreakGoalSeconds = 5 * 60;
   static const int maxDailyGoalSeconds = 30 * 60;
@@ -126,6 +170,55 @@ class FirestoreService {
     Map<String, dynamic> updates,
   ) async {
     await _db.collection('users').doc(uid).update(updates);
+  }
+
+  Future<void> updatePracticeReminder({
+    required String uid,
+    required TimeOfDay time,
+    required DateTime nextReminderAt,
+    required bool enabled,
+  }) async {
+    await _db.collection('users').doc(uid).set({
+      'practiceReminderEnabled': enabled,
+      'practiceReminderHour': time.hour,
+      'practiceReminderMinute': time.minute,
+      'practiceReminderTimezoneOffsetMinutes':
+          nextReminderAt.timeZoneOffset.inMinutes,
+      'nextPracticeReminderAt': Timestamp.fromDate(nextReminderAt),
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+  }
+
+  Future<void> saveFcmToken({
+    required String uid,
+    required String token,
+    required String platform,
+  }) async {
+    final tokenId = base64Url.encode(utf8.encode(token));
+    await _db
+        .collection('users')
+        .doc(uid)
+        .collection('fcm_tokens')
+        .doc(tokenId)
+        .set({
+          'token': token,
+          'platform': platform,
+          'updatedAt': FieldValue.serverTimestamp(),
+          'createdAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+  }
+
+  Future<void> deleteFcmToken({
+    required String uid,
+    required String token,
+  }) async {
+    final tokenId = base64Url.encode(utf8.encode(token));
+    await _db
+        .collection('users')
+        .doc(uid)
+        .collection('fcm_tokens')
+        .doc(tokenId)
+        .delete();
   }
 
   /// Stream user profile for real-time updates
@@ -194,6 +287,18 @@ class FirestoreService {
       'createdAt': now,
       'updatedAt': now,
     }, SetOptions(merge: true));
+    await createNotification(
+      id: 'friend_request_$connectionId',
+      userId: receiver.uid,
+      title: 'Lời mời kết bạn mới',
+      body: '${requester.displayName} muốn kết nối với bạn.',
+      type: AppNotificationType.friendRequest,
+      data: {
+        'connectionId': connectionId,
+        'requesterId': requester.uid,
+        'requesterName': requester.displayName,
+      },
+    );
   }
 
   Future<void> acceptConnectionRequest(String connectionId) async {
@@ -206,6 +311,91 @@ class FirestoreService {
 
   Future<void> declineConnectionRequest(String connectionId) async {
     await _db.collection('social_connections').doc(connectionId).delete();
+  }
+
+  Stream<List<AppNotification>> streamNotifications(String uid) {
+    return _db
+        .collection('notifications')
+        .where('userId', isEqualTo: uid)
+        .orderBy('createdAt', descending: true)
+        .limit(80)
+        .snapshots()
+        .map(
+          (snapshot) => snapshot.docs
+              .map((doc) => AppNotification.fromFirestore(doc))
+              .toList(),
+        );
+  }
+
+  Future<void> createNotification({
+    String? id,
+    required String userId,
+    required String title,
+    required String body,
+    required AppNotificationType type,
+    Map<String, dynamic> data = const {},
+  }) async {
+    final ref = id == null
+        ? _db.collection('notifications').doc()
+        : _db.collection('notifications').doc(id);
+    await ref.set({
+      'userId': userId,
+      'title': title,
+      'body': body,
+      'type': switch (type) {
+        AppNotificationType.friendRequest => 'friend_request',
+        AppNotificationType.general => 'general',
+      },
+      'read': false,
+      'data': data,
+      'createdAt': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+  }
+
+  Future<void> markNotificationRead(String notificationId) async {
+    try {
+      await _db.collection('notifications').doc(notificationId).update({
+        'read': true,
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+    } on FirebaseException catch (e) {
+      if (e.code != 'not-found') rethrow;
+    }
+  }
+
+  Future<void> markAllNotificationsRead(String uid) async {
+    final snapshot = await _db
+        .collection('notifications')
+        .where('userId', isEqualTo: uid)
+        .where('read', isEqualTo: false)
+        .limit(200)
+        .get();
+    final batch = _db.batch();
+    for (final doc in snapshot.docs) {
+      batch.update(doc.reference, {
+        'read': true,
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+    }
+    await batch.commit();
+  }
+
+  Future<void> deleteNotification(String notificationId) async {
+    await _db.collection('notifications').doc(notificationId).delete();
+  }
+
+  Future<void> deleteAllNotifications(String uid) async {
+    final snapshot = await _db
+        .collection('notifications')
+        .where('userId', isEqualTo: uid)
+        .limit(300)
+        .get();
+    final batch = _db.batch();
+    for (final doc in snapshot.docs) {
+      batch.delete(doc.reference);
+    }
+    await batch.commit();
   }
 
   Stream<List<SocialVoiceMessage>> streamVoiceMessages(String connectionId) {

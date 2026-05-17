@@ -11,6 +11,7 @@ import '../l10n/app_language.dart';
 import '../theme/app_colors.dart';
 import '../theme/theme_notifier.dart';
 import '../services/auth_service.dart';
+import '../services/fcm_service.dart';
 import '../services/firestore_service.dart';
 import '../services/notification_service.dart';
 import '../models/user_profile.dart';
@@ -31,6 +32,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   int _avatarIndex = 0;
   String _aiVoiceTone = 'Balanced';
   double _aiVoiceSpeed = 1.0;
+  AppNotificationMode _notificationMode = AppNotificationMode.sound;
 
   final AuthService _authService = AuthService();
   final FirestoreService _firestoreService = FirestoreService();
@@ -76,6 +78,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final savedAvatarIndex = prefs.getInt('profile_avatar_index');
     final savedAiVoiceTone = prefs.getString('profile_ai_voice_tone');
     final savedAiVoiceSpeed = prefs.getDouble('profile_ai_voice_speed');
+    final savedNotificationMode = await NotificationService()
+        .getNotificationMode();
 
     if (mounted) {
       setState(() {
@@ -90,6 +94,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
             _avatarOptions.length;
         _aiVoiceTone = savedAiVoiceTone ?? _aiVoiceTone;
         _aiVoiceSpeed = savedAiVoiceSpeed ?? _aiVoiceSpeed;
+        _notificationMode = savedNotificationMode;
       });
     }
     appLanguage.setByDisplayName(_selectedLanguage);
@@ -99,6 +104,17 @@ class _ProfileScreenState extends State<ProfileScreen> {
     if (user != null) {
       try {
         final profile = await _firestoreService.getUserProfile(user.uid);
+        if (profile != null) {
+          await NotificationService().setNotificationsEnabled(
+            profile.notificationsEnabled,
+          );
+          if (profile.notificationsEnabled) {
+            await FcmService().startForCurrentUser();
+          } else {
+            await FcmService().removeCurrentToken();
+            await FcmService().stop();
+          }
+        }
         if (mounted) {
           setState(() {
             _profile = profile;
@@ -125,6 +141,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     String? language,
     String? difficulty,
     bool? notificationsEnabled,
+    AppNotificationMode? notificationMode,
   }) async {
     final prefs = await SharedPreferences.getInstance();
 
@@ -139,6 +156,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
         'profile_notifications_enabled',
         notificationsEnabled,
       );
+      await NotificationService().setNotificationsEnabled(notificationsEnabled);
+    }
+    if (notificationMode != null) {
+      await NotificationService().setNotificationMode(notificationMode);
     }
 
     if (isFirebaseSupported) {
@@ -149,6 +170,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
         if (difficulty != null) updates['difficulty'] = difficulty;
         if (notificationsEnabled != null) {
           updates['notificationsEnabled'] = notificationsEnabled;
+        }
+        if (notificationMode != null) {
+          updates['notificationAlertMode'] = notificationMode.name;
         }
         if (updates.isNotEmpty) {
           await _firestoreService.updateUserProfile(user.uid, updates);
@@ -203,7 +227,103 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
     setState(() => _notificationsOn = nextValue);
     await _updateSettings(notificationsEnabled: nextValue);
-    await NotificationService().scheduleDailyReminder(nextValue);
+    if (nextValue) {
+      await FcmService().startForCurrentUser();
+      await NotificationService().scheduleDailyReminder(true);
+      final savedPracticeTime = await NotificationService()
+          .getSavedPracticeTime();
+      if (savedPracticeTime != null) {
+        await NotificationService().scheduleAtUserTime(savedPracticeTime);
+      }
+    } else {
+      await FcmService().removeCurrentToken();
+      await FcmService().stop();
+    }
+  }
+
+  Future<void> _pickNotificationMode() async {
+    final selected = await showModalBottomSheet<AppNotificationMode>(
+      context: context,
+      showDragHandle: true,
+      backgroundColor: context.colors.cardBg,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (context) {
+        final c = context.colors;
+        final base = GoogleFonts.plusJakartaSans();
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 4, 16, 18),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Kiểu thông báo',
+                  style: base.copyWith(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w900,
+                    color: c.textHeading,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                _NotificationModeTile(
+                  base: base,
+                  c: c,
+                  mode: AppNotificationMode.sound,
+                  currentMode: _notificationMode,
+                  icon: Icons.notifications_active_rounded,
+                  title: _notificationModeLabel(AppNotificationMode.sound),
+                  subtitle:
+                      'Áp dụng cho toàn bộ thông báo: chuông, rung và hiển thị.',
+                ),
+                _NotificationModeTile(
+                  base: base,
+                  c: c,
+                  mode: AppNotificationMode.vibrate,
+                  currentMode: _notificationMode,
+                  icon: Icons.vibration_rounded,
+                  title: _notificationModeLabel(AppNotificationMode.vibrate),
+                  subtitle:
+                      'Áp dụng cho toàn bộ thông báo: rung và hiển thị, không phát chuông.',
+                ),
+                _NotificationModeTile(
+                  base: base,
+                  c: c,
+                  mode: AppNotificationMode.silent,
+                  currentMode: _notificationMode,
+                  icon: Icons.notifications_off_rounded,
+                  title: _notificationModeLabel(AppNotificationMode.silent),
+                  subtitle:
+                      'Áp dụng cho toàn bộ thông báo: chỉ hiển thị, không chuông hoặc rung.',
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+    if (selected == null || selected == _notificationMode) return;
+
+    setState(() => _notificationMode = selected);
+    await _updateSettings(notificationMode: selected);
+    final savedPracticeTime = await NotificationService()
+        .getSavedPracticeTime();
+    if (savedPracticeTime != null) {
+      await NotificationService().scheduleAtUserTime(savedPracticeTime);
+    }
+    if (_notificationsOn) {
+      await NotificationService().scheduleDailyReminder(true);
+    }
+  }
+
+  String _notificationModeLabel(AppNotificationMode mode) {
+    return switch (mode) {
+      AppNotificationMode.sound => 'Chuông',
+      AppNotificationMode.vibrate => 'Rung',
+      AppNotificationMode.silent => 'Im lặng',
+    };
   }
 
   Future<String?> _showOptionSheet({
@@ -559,6 +679,20 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       onChanged: (_) => _toggleNotifications(),
                     ),
                   ),
+                  const SizedBox(height: 10),
+                  _SettingsRow(
+                    base: base,
+                    icon: Icons.volume_up_rounded,
+                    iconColor: c.accentBlue,
+                    iconBg: c.speedIconBg,
+                    title: 'Kiểu thông báo',
+                    subtitle: _notificationModeLabel(_notificationMode),
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      _pickNotificationMode();
+                    },
+                    c: c,
+                  ),
                   const SizedBox(height: 24),
                   SizedBox(
                     height: 52,
@@ -852,6 +986,17 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         onChanged: (_) => _toggleNotifications(),
                       ),
                     ),
+                    const SizedBox(height: 10),
+                    _SettingsRow(
+                      base: base,
+                      icon: Icons.volume_up_rounded,
+                      iconColor: c.accentBlue,
+                      iconBg: c.speedIconBg,
+                      title: 'Kiểu thông báo',
+                      subtitle: _notificationModeLabel(_notificationMode),
+                      onTap: _pickNotificationMode,
+                      c: c,
+                    ),
                   ],
                 ),
               ),
@@ -923,6 +1068,82 @@ class _DifficultyChip extends StatelessWidget {
           fontSize: 12,
           fontWeight: FontWeight.w800,
           color: fg,
+        ),
+      ),
+    );
+  }
+}
+
+class _NotificationModeTile extends StatelessWidget {
+  final TextStyle base;
+  final AppColorsExtension c;
+  final AppNotificationMode mode;
+  final AppNotificationMode currentMode;
+  final IconData icon;
+  final String title;
+  final String subtitle;
+
+  const _NotificationModeTile({
+    required this.base,
+    required this.c,
+    required this.mode,
+    required this.currentMode,
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final selected = mode == currentMode;
+    return InkWell(
+      borderRadius: BorderRadius.circular(16),
+      onTap: () => Navigator.pop(context, mode),
+      child: Container(
+        margin: const EdgeInsets.only(top: 8),
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: selected
+              ? c.accentBlue.withValues(alpha: 0.10)
+              : c.surfaceBg.withValues(alpha: 0.55),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: selected
+                ? c.accentBlue.withValues(alpha: 0.45)
+                : c.borderColor.withValues(alpha: 0.45),
+          ),
+        ),
+        child: Row(
+          children: [
+            Icon(icon, color: selected ? c.accentBlue : c.textMuted, size: 22),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: base.copyWith(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w900,
+                      color: c.textHeading,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    subtitle,
+                    style: base.copyWith(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: c.textMuted,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            if (selected)
+              Icon(Icons.check_circle_rounded, color: c.accentBlue, size: 20),
+          ],
         ),
       ),
     );

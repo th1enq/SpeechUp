@@ -199,6 +199,8 @@ class _SocialScreenState extends State<SocialScreen> {
                                       current.uid,
                                     )],
                                   ),
+                                  onRemoveFriend: () =>
+                                      _removeFriend(friendConnection),
                                 ),
                             const SizedBox(height: 18),
                             _SectionTitle(
@@ -220,6 +222,11 @@ class _SocialScreenState extends State<SocialScreen> {
                                   connection: byOtherUser[user.uid],
                                   onSendRequest: () =>
                                       _sendRequest(current, user),
+                                  onCancelRequest: byOtherUser[user.uid] == null
+                                      ? null
+                                      : () => _cancelRequest(
+                                          byOtherUser[user.uid]!,
+                                        ),
                                 ),
                           ],
                         ),
@@ -247,6 +254,9 @@ class _SocialScreenState extends State<SocialScreen> {
 
   Future<void> _acceptRequest(SocialConnection connection) async {
     await _firestoreService.acceptConnectionRequest(connection.id);
+    await _firestoreService.markNotificationRead(
+      'friend_request_${connection.id}',
+    );
     if (!mounted) return;
     _showSnack(
       appLanguage.locale.languageCode == 'vi'
@@ -257,6 +267,63 @@ class _SocialScreenState extends State<SocialScreen> {
 
   Future<void> _declineRequest(SocialConnection connection) async {
     await _firestoreService.declineConnectionRequest(connection.id);
+    await _firestoreService.deleteNotification(
+      'friend_request_${connection.id}',
+    );
+  }
+
+  Future<void> _cancelRequest(SocialConnection connection) async {
+    await _firestoreService.declineConnectionRequest(connection.id);
+    await _firestoreService.deleteNotification(
+      'friend_request_${connection.id}',
+    );
+    if (!mounted) return;
+    _showSnack(
+      appLanguage.locale.languageCode == 'vi'
+          ? 'Đã hủy lời mời kết nối.'
+          : 'Connection request canceled.',
+    );
+  }
+
+  Future<void> _removeFriend(SocialConnection connection) async {
+    final confirmed = await _confirmRemoveFriend(connection);
+    if (confirmed != true) return;
+    await _firestoreService.declineConnectionRequest(connection.id);
+    if (!mounted) return;
+    _showSnack(
+      appLanguage.locale.languageCode == 'vi'
+          ? 'Đã hủy kết bạn.'
+          : 'Friend removed.',
+    );
+  }
+
+  Future<bool?> _confirmRemoveFriend(SocialConnection connection) {
+    final vi = appLanguage.locale.languageCode == 'vi';
+    return showDialog<bool>(
+      context: context,
+      builder: (context) {
+        final c = context.colors;
+        return AlertDialog(
+          backgroundColor: c.cardBg,
+          title: Text(vi ? 'Hủy kết bạn?' : 'Remove friend?'),
+          content: Text(
+            vi
+                ? 'Bạn sẽ cần gửi lại lời mời nếu muốn kết nối lại.'
+                : 'You will need to send another request to reconnect.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: Text(vi ? 'Giữ lại' : 'Keep'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: Text(vi ? 'Hủy kết bạn' : 'Remove'),
+            ),
+          ],
+        );
+      },
+    );
   }
 
   void _openVoiceChat(SocialConnection connection, UserProfile? friend) {
@@ -689,11 +756,13 @@ class _DiscoverUserCard extends StatelessWidget {
   final UserProfile user;
   final SocialConnection? connection;
   final VoidCallback onSendRequest;
+  final VoidCallback? onCancelRequest;
 
   const _DiscoverUserCard({
     required this.user,
     required this.connection,
     required this.onSendRequest,
+    required this.onCancelRequest,
   });
 
   @override
@@ -706,19 +775,18 @@ class _DiscoverUserCard extends StatelessWidget {
           _Avatar(name: user.displayName),
           const SizedBox(width: 12),
           Expanded(child: _UserText(user: user)),
-          FilledButton.icon(
-            onPressed: isPending ? null : onSendRequest,
-            icon: Icon(
-              isPending
-                  ? Icons.hourglass_top_rounded
-                  : Icons.person_add_rounded,
+          if (isPending)
+            OutlinedButton.icon(
+              onPressed: onCancelRequest,
+              icon: const Icon(Icons.close_rounded),
+              label: Text(vi ? 'Hủy lời mời' : 'Cancel'),
+            )
+          else
+            FilledButton.icon(
+              onPressed: onSendRequest,
+              icon: const Icon(Icons.person_add_rounded),
+              label: Text(vi ? 'Kết nối' : 'Connect'),
             ),
-            label: Text(
-              isPending
-                  ? (vi ? 'Đã gửi' : 'Pending')
-                  : (vi ? 'Kết nối' : 'Connect'),
-            ),
-          ),
         ],
       ),
     );
@@ -776,11 +844,13 @@ class _FriendCard extends StatelessWidget {
   final UserProfile? user;
   final SocialConnection connection;
   final VoidCallback onOpenVoice;
+  final VoidCallback onRemoveFriend;
 
   const _FriendCard({
     required this.user,
     required this.connection,
     required this.onOpenVoice,
+    required this.onRemoveFriend,
   });
 
   @override
@@ -794,10 +864,22 @@ class _FriendCard extends StatelessWidget {
           Expanded(
             child: _UserText(user: user, fallbackName: connection.id),
           ),
-          FilledButton.icon(
-            onPressed: user == null ? null : onOpenVoice,
-            icon: const Icon(Icons.keyboard_voice_rounded),
-            label: Text(vi ? 'Voice' : 'Voice'),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            alignment: WrapAlignment.end,
+            children: [
+              OutlinedButton.icon(
+                onPressed: onRemoveFriend,
+                icon: const Icon(Icons.person_remove_rounded),
+                label: Text(vi ? 'Hủy kết bạn' : 'Remove'),
+              ),
+              FilledButton.icon(
+                onPressed: user == null ? null : onOpenVoice,
+                icon: const Icon(Icons.keyboard_voice_rounded),
+                label: Text(vi ? 'Voice' : 'Voice'),
+              ),
+            ],
           ),
         ],
       ),

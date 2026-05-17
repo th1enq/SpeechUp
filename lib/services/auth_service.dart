@@ -1,6 +1,8 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 
+import 'fcm_service.dart';
+
 class AuthService {
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final GoogleSignIn _googleSignIn = GoogleSignIn(
@@ -50,6 +52,8 @@ class AuthService {
 
   // Sign out
   Future<void> signOut() async {
+    await FcmService().removeCurrentToken();
+    await FcmService().stop();
     await _auth.signOut();
   }
 

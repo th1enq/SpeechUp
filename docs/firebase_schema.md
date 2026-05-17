@@ -19,8 +19,15 @@ Fields:
 - `lastPracticeAt: timestamp | null`
 - `language: string`
 - `difficulty: string`
-- `notificationsEnabled: boolean`
+- `notificationsEnabled: boolean` (controls app-side local notifications and
+  FCM push delivery)
+- `notificationAlertMode: "sound" | "vibrate" | "silent"`
 - `practiceGoals: string[]`
+- `practiceReminderEnabled: boolean`
+- `practiceReminderHour: number`
+- `practiceReminderMinute: number`
+- `practiceReminderTimezoneOffsetMinutes: number`
+- `nextPracticeReminderAt: timestamp`
 
 Current gap:
 - `avatarIndex`, `aiVoiceTone`, and `aiVoiceSpeed` are still stored locally in
@@ -69,9 +76,46 @@ Message fields:
 - `isUser: boolean`
 - `role: "user" | "assistant"`
 
+## `notifications/{notificationId}`
+
+Used by the notification bell and Social friend requests.
+
+Fields:
+- `userId: string`
+- `title: string`
+- `body: string`
+- `type: "general" | "friend_request"`
+- `read: boolean`
+- `data: map`
+- `createdAt: timestamp`
+- `updatedAt: timestamp`
+
+Friend request notification data:
+- `connectionId: string`
+- `requesterId: string`
+- `requesterName: string`
+
+## `users/{uid}/fcm_tokens/{tokenId}`
+
+Used by Firebase Cloud Messaging.
+
+Fields:
+- `token: string`
+- `platform: "android" | "unknown"`
+- `createdAt: timestamp`
+- `updatedAt: timestamp`
+
+Cloud Functions:
+- `sendNotificationPush` triggers when a `notifications/{notificationId}`
+  document is created and sends FCM to the recipient's saved tokens using
+  `users/{uid}.notificationAlertMode` to select the Android notification
+  channel.
+- `enqueuePracticeReminderNotifications` runs every minute, finds due
+  `users/{uid}.nextPracticeReminderAt`, creates a `notifications/{autoId}`
+  reminder document, and advances the next reminder by one day.
+
 ## Not persisted yet
 
-- In-app Home notifications are currently in memory.
 - Scheduled reminder time is stored locally by `NotificationService`.
 - Profile avatar and AI voice settings are stored locally.
 - Progress milestones are computed/displayed in UI, not stored as separate

@@ -4,6 +4,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import '../l10n/app_language.dart';
 import '../theme/app_colors.dart';
 import '../services/firestore_service.dart';
+import '../services/fcm_service.dart';
 import '../services/notification_service.dart';
 import '../main.dart' show isFirebaseSupported;
 import '../widgets/screen_header.dart';
@@ -42,14 +43,29 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _loadData() async {
+    TimeOfDay? savedTime;
+    try {
+      savedTime = await NotificationService().getSavedPracticeTime();
+    } catch (_) {}
+
     if (!isFirebaseSupported) {
-      if (mounted) setState(() => _isLoading = false);
+      if (mounted) {
+        setState(() {
+          _practiceTime = savedTime;
+          _isLoading = false;
+        });
+      }
       return;
     }
 
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) {
-      if (mounted) setState(() => _isLoading = false);
+      if (mounted) {
+        setState(() {
+          _practiceTime = savedTime;
+          _isLoading = false;
+        });
+      }
       return;
     }
 
@@ -68,12 +84,6 @@ class _HomeScreenState extends State<HomeScreen> {
       try {
         final profile = await _firestoreService.getUserProfile(user.uid);
         streak = profile?.streakDays ?? 0;
-      } catch (_) {}
-
-      // Load saved practice time
-      TimeOfDay? savedTime;
-      try {
-        savedTime = await NotificationService().getSavedPracticeTime();
       } catch (_) {}
 
       // Build activity for the current Monday-Sunday week.
@@ -122,13 +132,74 @@ class _HomeScreenState extends State<HomeScreen> {
   void _goProfile() => widget.onNavigate(4);
 
   Future<void> _openTimePicker() async {
+    final notificationService = NotificationService();
     final picked = await showTimePicker(
       context: context,
       initialTime: _practiceTime ?? const TimeOfDay(hour: 9, minute: 0),
     );
     if (picked == null || !mounted) return;
+    final messenger = ScaffoldMessenger.of(context);
+    final granted = await notificationService.requestPermissions();
+    if (!mounted) return;
     setState(() => _practiceTime = picked);
-    await NotificationService().scheduleAtUserTime(picked);
+    if (!granted) {
+      await notificationService.setNotificationsEnabled(false);
+      messenger.showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Notification permission is required for phone reminders.',
+          ),
+        ),
+      );
+      return;
+    }
+
+    await notificationService.setNotificationsEnabled(true);
+    if (isFirebaseSupported) {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user != null) {
+        try {
+          final nextReminderAt = _nextReminderDateTime(picked);
+          await _firestoreService.updateUserProfile(user.uid, {
+            'notificationsEnabled': true,
+          });
+          await _firestoreService.updatePracticeReminder(
+            uid: user.uid,
+            time: picked,
+            nextReminderAt: nextReminderAt,
+            enabled: true,
+          );
+          await FcmService().startForCurrentUser();
+        } catch (_) {}
+      }
+    }
+
+    final scheduled = await notificationService.scheduleAtUserTime(picked);
+    if (!mounted) return;
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text(
+          scheduled
+              ? 'Đã đặt nhắc nhở tập luyện.'
+              : 'Chưa thể đặt nhắc nhở. Hãy bật thông báo trong Profile.',
+        ),
+      ),
+    );
+  }
+
+  DateTime _nextReminderDateTime(TimeOfDay time) {
+    final now = DateTime.now();
+    var scheduled = DateTime(
+      now.year,
+      now.month,
+      now.day,
+      time.hour,
+      time.minute,
+    );
+    if (!scheduled.isAfter(now)) {
+      scheduled = scheduled.add(const Duration(days: 1));
+    }
+    return scheduled;
   }
 
   List<String> _allTopics() {

@@ -11,6 +11,7 @@ import 'l10n/app_language.dart';
 import 'theme/app_theme.dart';
 import 'theme/app_colors.dart';
 import 'theme/theme_notifier.dart';
+import 'services/fcm_service.dart';
 import 'services/notification_service.dart';
 import 'screens/main_shell.dart';
 import 'screens/onboarding_screen.dart';
@@ -27,6 +28,7 @@ void main() async {
 
   if (isFirebaseSupported) {
     await Firebase.initializeApp();
+    FcmService.registerBackgroundHandler();
   }
 
   await NotificationService().init();
@@ -53,15 +55,18 @@ class SpeechUpApp extends StatefulWidget {
 
 class _SpeechUpAppState extends State<SpeechUpApp> {
   void _applySystemUiOverlay(bool isDark) {
-    SystemChrome.setSystemUIOverlayStyle(SystemUiOverlayStyle(
-      statusBarColor: Colors.transparent,
-      statusBarIconBrightness: isDark ? Brightness.light : Brightness.dark,
-      // Same nav bar treatment in both modes avoids layout jumping when toggling theme.
-      systemNavigationBarColor: Colors.transparent,
-      systemNavigationBarContrastEnforced: false,
-      systemNavigationBarIconBrightness:
-          isDark ? Brightness.light : Brightness.dark,
-    ));
+    SystemChrome.setSystemUIOverlayStyle(
+      SystemUiOverlayStyle(
+        statusBarColor: Colors.transparent,
+        statusBarIconBrightness: isDark ? Brightness.light : Brightness.dark,
+        // Same nav bar treatment in both modes avoids layout jumping when toggling theme.
+        systemNavigationBarColor: Colors.transparent,
+        systemNavigationBarContrastEnforced: false,
+        systemNavigationBarIconBrightness: isDark
+            ? Brightness.light
+            : Brightness.dark,
+      ),
+    );
   }
 
   @override
@@ -83,10 +88,7 @@ class _SpeechUpAppState extends State<SpeechUpApp> {
           darkTheme: AppTheme.darkTheme,
           themeMode: themeNotifier.mode,
           locale: appLanguage.locale,
-          supportedLocales: const [
-            Locale('en'),
-            Locale('vi'),
-          ],
+          supportedLocales: const [Locale('en'), Locale('vi')],
           localizationsDelegates: const [
             GlobalMaterialLocalizations.delegate,
             GlobalWidgetsLocalizations.delegate,
@@ -141,9 +143,7 @@ class _AppRootState extends State<AppRoot> {
     if (_isCheckingOnboarding) {
       return Scaffold(
         backgroundColor: c.onboardingBg,
-        body: Center(
-          child: CircularProgressIndicator(color: c.accentBlue),
-        ),
+        body: Center(child: CircularProgressIndicator(color: c.accentBlue)),
       );
     }
 

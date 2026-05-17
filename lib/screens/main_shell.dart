@@ -1,10 +1,14 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../main.dart' show isFirebaseSupported;
 import '../l10n/app_language.dart';
+import '../services/fcm_service.dart';
 import '../services/firestore_service.dart';
+import '../services/notification_service.dart';
 import '../theme/app_colors.dart';
 import 'home_screen.dart';
 import 'practice_screen.dart';
@@ -29,6 +33,7 @@ class _MainShellState extends State<MainShell> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      FcmService().startForCurrentUser();
       _maybeShowFirstLoginSetup();
     });
   }
@@ -261,27 +266,32 @@ class _MainShellState extends State<MainShell> {
 
     return Scaffold(
       backgroundColor: c.scaffoldBg,
-      body: IndexedStack(
-        index: _currentIndex,
+      body: Stack(
         children: [
-          HomeScreen(
-            onNavigate: _navigateTo,
-            onOpenChatTopic: _openChatTopic,
-            userName: isFirebaseSupported
-                ? (FirebaseAuth.instance.currentUser?.displayName ?? 'User')
-                : 'User',
+          IndexedStack(
+            index: _currentIndex,
+            children: [
+              HomeScreen(
+                onNavigate: _navigateTo,
+                onOpenChatTopic: _openChatTopic,
+                userName: isFirebaseSupported
+                    ? (FirebaseAuth.instance.currentUser?.displayName ?? 'User')
+                    : 'User',
+              ),
+              const PracticeScreen(),
+              ConversationScreen(
+                initialCustomPrompt: _pendingChatTopic,
+                onNavigateProfile: () => _navigateTo(4),
+                onInitialPromptConsumed: () {
+                  if (!mounted) return;
+                  setState(() => _pendingChatTopic = null);
+                },
+              ),
+              const SocialScreen(),
+              const ProfileScreen(),
+            ],
           ),
-          const PracticeScreen(),
-          ConversationScreen(
-            initialCustomPrompt: _pendingChatTopic,
-            onNavigateProfile: () => _navigateTo(4),
-            onInitialPromptConsumed: () {
-              if (!mounted) return;
-              setState(() => _pendingChatTopic = null);
-            },
-          ),
-          const SocialScreen(),
-          const ProfileScreen(),
+          const _ForegroundNotificationListener(),
         ],
       ),
       bottomNavigationBar: Container(
@@ -357,4 +367,64 @@ class _MainShellState extends State<MainShell> {
       ),
     );
   }
+}
+
+class _ForegroundNotificationListener extends StatefulWidget {
+  const _ForegroundNotificationListener();
+
+  @override
+  State<_ForegroundNotificationListener> createState() =>
+      _ForegroundNotificationListenerState();
+}
+
+class _ForegroundNotificationListenerState
+    extends State<_ForegroundNotificationListener> {
+  final FirestoreService _firestoreService = FirestoreService();
+  final Set<String> _seenNotificationIds = {};
+  StreamSubscription<List<AppNotification>>? _subscription;
+
+  @override
+  void initState() {
+    super.initState();
+    _start();
+  }
+
+  void _start() {
+    if (!isFirebaseSupported) return;
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    var firstSnapshot = true;
+    _subscription = _firestoreService.streamNotifications(user.uid).listen((
+      notifications,
+    ) {
+      if (firstSnapshot) {
+        _seenNotificationIds.addAll(notifications.map((n) => n.id));
+        firstSnapshot = false;
+        return;
+      }
+
+      for (final notification in notifications) {
+        if (notification.read ||
+            _seenNotificationIds.contains(notification.id)) {
+          continue;
+        }
+        _seenNotificationIds.add(notification.id);
+        NotificationService().showNow(
+          id: notification.id.hashCode & 0x7fffffff,
+          title: notification.title,
+          body: notification.body,
+        );
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _subscription?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => const SizedBox.shrink();
 }
